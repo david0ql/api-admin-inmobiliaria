@@ -67,6 +67,9 @@ export class PropertiesService {
       .leftJoinAndSelect('property.currency', 'currency')
       .leftJoinAndSelect('property.label', 'label')
       .leftJoinAndSelect('property.assignedAgent', 'assignedAgent')
+      // `family` es eager en la entidad, pero el QueryBuilder ignora eso: sin
+      // este join el inmueble sale siempre como suelto aunque tenga proyecto.
+      .leftJoinAndSelect('property.family', 'family')
       // Solo la portada: traer las 6.340 imagenes en un listado seria absurdo.
       .leftJoinAndSelect(
         'property.images',
@@ -96,6 +99,7 @@ export class PropertiesService {
       .leftJoinAndSelect('property.currency', 'currency')
       .leftJoinAndSelect('property.label', 'label')
       .leftJoinAndSelect('property.assignedAgent', 'assignedAgent')
+      .leftJoinAndSelect('property.family', 'family')
       .leftJoinAndSelect('property.features', 'features')
       .leftJoinAndSelect('property.images', 'images')
       .where('property.id = :id', { id })
