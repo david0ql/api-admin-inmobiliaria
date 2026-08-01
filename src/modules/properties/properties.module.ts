@@ -7,8 +7,11 @@ import { Property } from './domain/property.entity';
 import { PropertyImage } from './domain/property-image.entity';
 import { PropertyLabel } from './domain/property-label.entity';
 import { PropertyAssignment } from './domain/property-assignment.entity';
+import { PropertyFamily } from './domain/property-family.entity';
 import { PropertiesService } from './properties.service';
 import { PropertiesController } from './properties.controller';
+import { FamiliesService } from './families.service';
+import { FamiliesController } from './families.controller';
 
 @Module({
   imports: [
@@ -17,13 +20,14 @@ import { PropertiesController } from './properties.controller';
       PropertyImage,
       PropertyLabel,
       PropertyAssignment,
+      PropertyFamily,
     ]),
     CatalogModule,
     IamModule,
     MediaModule,
   ],
-  controllers: [PropertiesController],
-  providers: [PropertiesService],
-  exports: [PropertiesService, TypeOrmModule],
+  controllers: [PropertiesController, FamiliesController],
+  providers: [PropertiesService, FamiliesService],
+  exports: [PropertiesService, FamiliesService, TypeOrmModule],
 })
 export class PropertiesModule {}

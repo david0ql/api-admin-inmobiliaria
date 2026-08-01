@@ -56,6 +56,25 @@ export const envSchema = z.object({
 
   WASI_DUMP_DIR: z.string().default('../data/wasi'),
 
+  /** Captcha de los formularios publicos: turnstile o recaptcha. */
+  CAPTCHA_PROVIDER: z.enum(['turnstile', 'recaptcha']).default('turnstile'),
+  /** Sin secreto la verificacion se salta y se avisa por log. */
+  CAPTCHA_SECRET: z.string().optional(),
+
+  /** Antelacion minima para pedir una visita desde la web, en horas. */
+  PUBLIC_BOOKING_LEAD_HOURS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(720)
+    .default(24),
+
+  /**
+   * Analisis antivirus de los ficheros subidos. Requiere `clamdscan` en el
+   * sistema; si no esta, la API lo avisa por log y sigue con el resto de capas.
+   */
+  ANTIVIRUS_ENABLED: bool.default(false),
+
   /** Carpeta donde viven las imagenes subidas e importadas. */
   UPLOADS_DIR: z.string().default('./uploads'),
   /** Tamano maximo por archivo en la subida, en megabytes. */

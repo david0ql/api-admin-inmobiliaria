@@ -3,6 +3,7 @@ import { MulterModule } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { AppConfigService } from '../../shared/config/app-config.service';
 import { StorageService } from './storage.service';
+import { FileSecurityService } from './file-security.service';
 
 @Module({
   imports: [
@@ -20,7 +21,7 @@ import { StorageService } from './storage.service';
       }),
     }),
   ],
-  providers: [StorageService],
-  exports: [StorageService, MulterModule],
+  providers: [StorageService, FileSecurityService],
+  exports: [StorageService, FileSecurityService, MulterModule],
 })
 export class MediaModule {}

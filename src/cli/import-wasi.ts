@@ -6,6 +6,7 @@ import { DataSource } from 'typeorm';
 import { AppDataSource } from '../shared/database/data-source';
 import { validateEnv } from '../shared/config/env.schema';
 import { StorageService } from '../modules/media/storage.service';
+import { FileSecurityService } from '../modules/media/file-security.service';
 import { Agent } from '../modules/iam/domain/agent.entity';
 import { AgentStatus, Role } from '../modules/iam/domain/role.enum';
 import { City, Zone } from '../modules/catalog/domain/geography.entity';
@@ -84,10 +85,15 @@ const MAX_IMAGES = Number(
 
 // El importador corre fuera de Nest, asi que el servicio se instancia a mano
 // con un adaptador minimo de la configuracion.
-const storage = new StorageService({
+const storageConfig = {
   uploadsDir: env.UPLOADS_DIR,
   uploadMaxBytes: env.UPLOAD_MAX_MB * 1024 * 1024,
-} as never);
+  antivirusEnabled: env.ANTIVIRUS_ENABLED,
+} as never;
+const storage = new StorageService(
+  storageConfig,
+  new FileSecurityService(storageConfig),
+);
 
 /**
  * Importa el inventario y la cartera de WASI.

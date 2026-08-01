@@ -1,10 +1,11 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import sharp from 'sharp';
 import { AppConfigService } from '../../shared/config/app-config.service';
+import { FileSecurityService, sanitizeName } from './file-security.service';
 
 export interface StoredImage {
   /** Ruta relativa dentro de `uploads/`; es lo que se guarda en la base. */
@@ -27,6 +28,13 @@ const ACCEPTED = new Set([
   'image/avif',
   'image/gif',
 ]);
+
+/**
+ * Tope de pixeles de entrada. Una foto de 100 megapixeles no existe en este
+ * negocio, pero un PNG manipulado que los declare tumba el proceso al
+ * decodificarlo.
+ */
+const MAX_INPUT_PIXELS = 100_000_000;
 
 /** Anchos derivados: listado, ficha y archivo. */
 const THUMB_WIDTH = 560;
@@ -60,7 +68,10 @@ export class StorageService {
   private readonly logger = new Logger(StorageService.name);
   readonly root: string;
 
-  constructor(private readonly config: AppConfigService) {
+  constructor(
+    private readonly config: AppConfigService,
+    private readonly security: FileSecurityService,
+  ) {
     const dir = config.uploadsDir;
     this.root = isAbsolute(dir) ? dir : resolve(process.cwd(), dir);
   }
@@ -81,14 +92,26 @@ export class StorageService {
     scope: string,
     originalName?: string,
   ): Promise<StoredImage> {
-    if (!buffer.length) throw new BadRequestException('El archivo esta vacio');
+    const safeName = sanitizeName(originalName ?? 'imagen');
+
+    // Primero se comprueba que es una imagen de verdad y que no lleva nada
+    // dentro; solo despues se decodifica. Al reencodearla entera desaparece
+    // cualquier carga util que hubiera sobrevivido: lo que se guarda son
+    // pixeles nuevos, no los bytes que subio el usuario.
+    await this.security.inspect(buffer, safeName, ['image']);
 
     let meta: sharp.Metadata;
     try {
-      meta = await sharp(buffer).metadata();
+      meta = await sharp(buffer, {
+        // Corta las bombas de descompresion: un PNG de 2 KB puede declarar
+        // 50.000 x 50.000 px y agotar la memoria del proceso al decodificarlo.
+        limitInputPixels: MAX_INPUT_PIXELS,
+        // Un solo fotograma: los GIF animados no son fotos de inmueble.
+        pages: 1,
+      }).metadata();
     } catch {
       throw new BadRequestException(
-        `"${originalName ?? 'archivo'}" no es una imagen que se pueda procesar`,
+        `"${safeName}" no es una imagen que se pueda procesar`,
       );
     }
 
@@ -99,11 +122,11 @@ export class StorageService {
       : '';
     if (!ACCEPTED.has(mimeType)) {
       throw new BadRequestException(
-        `Formato no admitido${format ? ` (${format})` : ''}. Usa JPG, PNG, WebP o AVIF.`,
+        `Formato no admitido${format ? ` (${format})` : ''}. Usa JPG, PNG, WebP, HEIC o AVIF.`,
       );
     }
 
-    const checksum = createHash('sha256').update(buffer).digest('hex');
+    const checksum = this.security.checksum(buffer);
     const id = randomUUID();
     const dir = join(this.root, scope);
     await mkdir(dir, { recursive: true });
@@ -197,6 +220,51 @@ export class StorageService {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Guarda un fichero tal cual, sin procesarlo. Es para documentos — una
+   * escritura o un certificado de tradicion es un PDF que hay que conservar
+   * byte a byte, no una imagen que recomprimir.
+   */
+  async saveRaw(
+    buffer: Buffer,
+    scope: string,
+    originalName: string,
+    { maxBytes = 10 * 1024 * 1024 } = {},
+  ): Promise<{
+    key: string;
+    url: string;
+    bytes: number;
+    originalName: string;
+  }> {
+    const safeName = sanitizeName(originalName);
+    if (buffer.length > maxBytes) {
+      throw new BadRequestException(
+        `"${safeName}" pesa mas de ${Math.round(maxBytes / 1024 / 1024)} MB`,
+      );
+    }
+
+    // Un documento no se reencodea, asi que la inspeccion es lo unico que hay
+    // entre el fichero del usuario y el disco: aqui se apura mas — firma real,
+    // rechazo de poliglotas y de PDF con acciones automaticas.
+    const sniffed = await this.security.inspect(buffer, safeName, [
+      'document',
+      'image',
+    ]);
+
+    // El nombre en disco es un uuid y la extension sale de la firma, no del
+    // nombre que envio el usuario: no hay travesia de rutas ni doble extension.
+    const key = `${scope}/${randomUUID()}.${sniffed.extension}`;
+    await mkdir(join(this.root, scope), { recursive: true });
+    await writeFile(join(this.root, key), buffer, { mode: 0o644 });
+
+    return {
+      key,
+      url: this.publicUrl(key),
+      bytes: buffer.length,
+      originalName: safeName,
+    };
   }
 
   /** Borra las tres variantes a partir de la clave del original. */

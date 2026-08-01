@@ -1,6 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import type { ServerResponse } from 'node:http';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
@@ -30,6 +31,23 @@ async function bootstrap() {
     immutable: true,
     index: false,
     dotfiles: 'deny',
+    setHeaders(res: ServerResponse, path: string) {
+      // Aunque todo lo que entra se inspecciona y las imagenes se reencodean,
+      // el servido asume que un fichero pudo colarse: el navegador no debe
+      // adivinar el tipo, no debe ejecutar nada y no debe renderizar en este
+      // origen. Es la ultima linea, y es la barata.
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader(
+        'Content-Security-Policy',
+        "default-src 'none'; img-src 'self'; sandbox; frame-ancestors 'none'",
+      );
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      // Los documentos se descargan, nunca se abren dentro de la aplicacion:
+      // un PDF renderizado en el mismo origen es un vector de robo de sesion.
+      if (!path.endsWith('.webp')) {
+        res.setHeader('Content-Disposition', 'attachment');
+      }
+    },
   });
 
   app.useGlobalPipes(

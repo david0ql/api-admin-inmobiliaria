@@ -20,6 +20,7 @@ import {
 } from '../../catalog/domain/catalogs.entity';
 import { PropertyImage } from './property-image.entity';
 import { PropertyLabel } from './property-label.entity';
+import { PropertyFamily } from './property-family.entity';
 import {
   Availability,
   MapPublication,
@@ -314,6 +315,30 @@ export class Property extends BaseEntity {
     cascade: ['insert'],
   })
   images: PropertyImage[];
+
+  // --- proyecto al que pertenece -----------------------------------------
+
+  /**
+   * Conjunto, edificio o proyecto del que forma parte. Nulo para los inmuebles
+   * sueltos, que son la mayoria del inventario de segunda mano.
+   */
+  @ManyToOne(() => PropertyFamily, {
+    nullable: true,
+    eager: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'family_id' })
+  family: PropertyFamily | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @Index()
+  @Column({ name: 'family_id', type: 'uuid', nullable: true })
+  familyId: string | null;
+
+  /** Nombre de la tipologia dentro del proyecto: "Tipo A", "Esquinero". */
+  @ApiPropertyOptional({ nullable: true })
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  unitType: string | null;
 
   // --- responsable -------------------------------------------------------
 

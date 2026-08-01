@@ -77,6 +77,21 @@ export class AppConfigService {
     return this.get('WASI_DUMP_DIR');
   }
 
+  get captcha() {
+    return {
+      provider: this.get('CAPTCHA_PROVIDER'),
+      secret: this.get('CAPTCHA_SECRET'),
+    };
+  }
+
+  get publicBookingLeadHours() {
+    return this.get('PUBLIC_BOOKING_LEAD_HOURS');
+  }
+
+  get antivirusEnabled() {
+    return this.get('ANTIVIRUS_ENABLED');
+  }
+
   get uploadsDir() {
     return this.get('UPLOADS_DIR');
   }
