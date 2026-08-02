@@ -32,22 +32,7 @@ import { CreateCreditRequestDto } from './dto/credit.dto';
 import { CreditRequestsService } from './credit-requests.service';
 import { SearchPublicProjectsDto } from './dto/public-projects.dto';
 import { SearchPublicPropertiesDto } from './dto/public-search.dto';
-import {
-  ConsignmentDocumentType,
-  type ConsignmentFile,
-} from './domain/consignment-request.entity';
-
-/** Los cinco documentos del formulario, cada uno en su propio campo. */
-const DOCUMENT_FIELDS = [
-  { name: 'docTradition', docType: ConsignmentDocumentType.TRADITION },
-  { name: 'docDeed', docType: ConsignmentDocumentType.DEED },
-  { name: 'docId', docType: ConsignmentDocumentType.OWNER_ID },
-  { name: 'docTax', docType: ConsignmentDocumentType.PROPERTY_TAX },
-  {
-    name: 'docMaintenance',
-    docType: ConsignmentDocumentType.MAINTENANCE_BILL,
-  },
-] as const;
+import { DOCUMENT_FIELDS, storeConsignmentFiles } from './consignment-files';
 
 /**
  * Superficie publica: lo que consume la web de presentacion.
@@ -216,69 +201,11 @@ export class PublicController {
     await this.captcha.verify(dto.captchaToken, ip(req));
     const request = await this.service.createConsignment(dto, ip(req));
 
-    // Las fotos pasan por el mismo procesado que el inventario; los documentos
-    // se guardan tal cual, que un PDF no se recomprime.
-    const files: ConsignmentFile[] = [];
-    for (const photo of uploaded?.photos ?? []) {
-      const stored = await this.storage
-        .saveImage(
-          photo.buffer,
-          `consignments/${request.id}`,
-          photo.originalname,
-        )
-        .catch(() => null);
-      if (stored) {
-        files.push({
-          kind: 'PHOTO',
-          storageKey: stored.key,
-          url: stored.url,
-          originalName: photo.originalname,
-          bytes: stored.bytes,
-        });
-      }
-    }
-    for (const field of DOCUMENT_FIELDS) {
-      for (const document of uploaded?.[field.name] ?? []) {
-        const stored = await this.storage
-          .saveRaw(
-            document.buffer,
-            `consignments/${request.id}`,
-            document.originalname,
-          )
-          .catch(() => null);
-        if (stored) {
-          files.push({
-            kind: 'DOCUMENT',
-            docType: field.docType,
-            storageKey: stored.key,
-            url: stored.url,
-            originalName: document.originalname,
-            bytes: stored.bytes,
-          });
-        }
-      }
-    }
-
-    // Los que lleguen sin categoria se guardan igual: mejor un PDF sin
-    // etiquetar que perderlo.
-    for (const document of uploaded?.documents ?? []) {
-      const stored = await this.storage
-        .saveRaw(
-          document.buffer,
-          `consignments/${request.id}`,
-          document.originalname,
-        )
-        .catch(() => null);
-      if (stored) {
-        files.push({
-          kind: 'DOCUMENT',
-          storageKey: stored.key,
-          url: stored.url,
-          originalName: document.originalname,
-          bytes: stored.bytes,
-        });
-      }
-    }
+    const files = await storeConsignmentFiles(
+      this.storage,
+      request.id,
+      uploaded,
+    );
 
     if (files.length) await this.service.attachFiles(request.id, files);
 

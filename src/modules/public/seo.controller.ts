@@ -54,6 +54,35 @@ export class SeoController {
   @Get('render/:slug/:code')
   @Header('Content-Type', 'text/html; charset=utf-8')
   @Header('Cache-Control', 'no-cache')
+  /*
+    La politica que corresponde a una pagina del sitio, no a una respuesta de
+    la API.
+
+    La de helmet trae `img-src 'self'`, que en una respuesta JSON es lo
+    correcto y aqui dejaba el mapa de la ficha en gris: las teselas vienen de
+    openstreetmap.org. El resto se mantiene igual de cerrado —nada de scripts
+    ajenos, nada de eval, nada de marcos— porque esto sigue sirviendo HTML a un
+    navegador.
+
+    `unsafe-inline` en los estilos es inevitable: la hoja viaja dentro del HTML
+    y Leaflet coloca sus capas con estilos en linea.
+  */
+  @Header(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "base-uri 'self'",
+      "font-src 'self' data:",
+      "form-action 'self'",
+      "frame-ancestors 'self'",
+      "img-src 'self' data: https://*.tile.openstreetmap.org",
+      "object-src 'none'",
+      "script-src 'self'",
+      "script-src-attr 'none'",
+      "style-src 'self' 'unsafe-inline'",
+      'upgrade-insecure-requests',
+    ].join('; '),
+  )
   async property(@Param('code') code: string): Promise<string> {
     return this.render.property(code);
   }

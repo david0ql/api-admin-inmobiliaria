@@ -58,6 +58,13 @@ import { CreditRequestsController } from './credit-requests.controller';
     SeoService,
     RenderService,
   ],
-  exports: [PublicService, ConsignmentsService, CreditRequestsService],
+  exports: [
+    PublicService,
+    ConsignmentsService,
+    CreditRequestsService,
+    // Lo usa el registro del portal: un alta abierta sin captcha se llena de
+    // basura igual que cualquier otro formulario publico.
+    CaptchaService,
+  ],
 })
 export class PublicModule {}

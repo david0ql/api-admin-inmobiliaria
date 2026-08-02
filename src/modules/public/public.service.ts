@@ -525,12 +525,15 @@ export class PublicService {
   async createConsignment(
     dto: CreateConsignmentDto,
     ip?: string,
+    /** Presente solo si la envio un propietario ya identificado en el portal. */
+    clientId?: string,
   ): Promise<ConsignmentRequest> {
     const reference = await this.nextConsignmentReference();
 
     const request = this.consignments.create({
       reference,
       status: ConsignmentStatus.NEW,
+      clientId: clientId ?? null,
       cityId: dto.cityId ?? null,
       cityName: dto.cityName.trim(),
       commune: dto.commune?.trim() ?? null,
