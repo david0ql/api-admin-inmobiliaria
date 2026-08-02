@@ -24,6 +24,39 @@ export const envSchema = z.object({
         .filter(Boolean),
     ),
 
+  /**
+   * Cuantos proxies hay delante, o cuales.
+   *
+   * Sin esto, `req.ip` es la direccion de quien abre el socket — el proxy — y
+   * no la del visitante: el limite de peticiones pasa a ser un cubo compartido
+   * por todo el mundo y las IP que se guardan no valen para nada.
+   *
+   * Y `true` NO es la respuesta: haria que Express se creyera el
+   * `X-Forwarded-For` de cualquiera, y entonces saltarse el limite es rotar una
+   * cabecera. Por eso se admite un numero de saltos (1 si hay un solo nginx
+   * delante) o una lista de IPs/CIDR de confianza, y por defecto esta apagado.
+   */
+  TRUST_PROXY: z
+    .string()
+    .default('')
+    // El rechazo va ANTES del transform: despues llegaria el valor ya
+    // convertido y "true" habria pasado como una lista de un elemento.
+    .refine((v) => v.trim().toLowerCase() !== 'true', {
+      message:
+        'TRUST_PROXY no admite "true": eso haria que Express se creyera el ' +
+        'X-Forwarded-For de cualquiera. Usa el numero de saltos (1, 2...) o ' +
+        'la lista de IPs/CIDR de confianza.',
+    })
+    .transform((v): boolean | number | string[] => {
+      const value = v.trim();
+      if (!value || value === 'false' || value === '0') return false;
+      if (/^\d+$/.test(value)) return Number(value);
+      return value
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }),
+
   DATABASE_HOST: z.string().min(1),
   DATABASE_PORT: z.coerce.number().int().positive().default(5432),
   DATABASE_USER: z.string().min(1),

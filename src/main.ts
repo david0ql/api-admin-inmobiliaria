@@ -12,6 +12,18 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const config = app.get(AppConfigService);
 
+  /*
+   * Detras de un reverse proxy, `req.ip` es la del proxy salvo que se le diga
+   * en quien confiar. Y de `req.ip` cuelgan cosas que importan: el limite de
+   * peticiones lo usa como clave —sin esto, los 5 intentos de login por minuto
+   * son 5 para TODOS los visitantes juntos— y es lo que se guarda en las
+   * sesiones y en el rastro de cada formulario.
+   *
+   * El valor sale del entorno y nunca es `true`: ver `TRUST_PROXY` en el
+   * esquema. Confiar en cualquiera equivale a no tener limite.
+   */
+  app.set('trust proxy', config.trustProxy);
+
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.enableCors({
     origin: config.corsOrigins.includes('*') ? true : config.corsOrigins,
@@ -90,6 +102,11 @@ async function bootstrap() {
   await app.listen(config.port);
   const url = await app.getUrl();
   console.log(`API en ${url}/${config.apiPrefix}`);
+  console.log(
+    config.trustProxy === false
+      ? 'trust proxy: apagado — req.ip es la del socket. Detras de un proxy, configura TRUST_PROXY.'
+      : `trust proxy: ${JSON.stringify(config.trustProxy)}`,
+  );
   console.log(`Documentacion en ${url}/api/docs`);
   console.log(`Imagenes en ${url}/media  ->  ${storage.root}`);
 }

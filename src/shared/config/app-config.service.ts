@@ -39,6 +39,10 @@ export class AppConfigService {
   get corsOrigins() {
     return this.get('CORS_ORIGINS');
   }
+  /** `false`, un numero de saltos, o la lista de proxies de confianza. */
+  get trustProxy() {
+    return this.get('TRUST_PROXY');
+  }
 
   get database() {
     return {
