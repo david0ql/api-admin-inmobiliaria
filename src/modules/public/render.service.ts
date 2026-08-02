@@ -29,10 +29,26 @@ import {
  * reescribe cuando React monta. Si divergen, el visitante ve una cosa y el
  * buscador otra.
  */
+/** Un minuto: un inmueble no cambia de precio dos veces en el mismo minuto. */
+const CACHE_MS = 60_000;
+
 @Injectable()
 export class RenderService {
   private readonly logger = new Logger(RenderService.name);
   private cached?: { html: string; mtimeMs: number };
+
+  /**
+   * La cabecera ya compuesta de cada ficha.
+   *
+   * Sin esto, cada visita a un inmueble era una consulta con sus imagenes, su
+   * ciudad, su zona, su tipo y su moneda antes de poder mandar el primer byte.
+   * Un inmueble no cambia de precio dos veces en el mismo minuto, y esa
+   * consulta estaba en el camino critico de lo que el visitante ve.
+   *
+   * Solo se guarda la cabecera —un par de kB por inmueble, los 642 caben de
+   * sobra— y no la pagina entera, que con los estilos dentro son 50 kB.
+   */
+  private readonly heads = new Map<string, { head: string; hasta: number }>();
 
   constructor(
     @InjectRepository(Property)
@@ -62,6 +78,15 @@ export class RenderService {
   }
 
   async property(code: string): Promise<string> {
+    const [shell, head] = await Promise.all([this.shell(), this.headFor(code)]);
+    return sinCabeceraGenerica(shell).replace('</head>', head + '</head>');
+  }
+
+  private async headFor(code: string): Promise<string> {
+    const ahora = Date.now();
+    const guardada = this.heads.get(code);
+    if (guardada && guardada.hasta > ahora) return guardada.head;
+
     const property = await this.properties.findOne({
       where: { code },
       relations: {
@@ -82,11 +107,9 @@ export class RenderService {
       throw new NotFoundException();
     }
 
-    const shell = await this.shell();
-    return sinCabeceraGenerica(shell).replace(
-      '</head>',
-      this.head(property) + '</head>',
-    );
+    const head = this.head(property);
+    this.heads.set(code, { head, hasta: ahora + CACHE_MS });
+    return head;
   }
 
   private head(property: Property): string {
