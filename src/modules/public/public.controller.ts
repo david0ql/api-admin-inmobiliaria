@@ -8,31 +8,20 @@ import {
   Post,
   Query,
   Req,
-  UploadedFiles,
-  UseInterceptors,
 } from '@nestjs/common';
-import { FileFieldsInterceptor } from '@nestjs/platform-express';
-import {
-  ApiBody,
-  ApiConsumes,
-  ApiOperation,
-  ApiQuery,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { Public } from '../iam/decorators';
 import { AllowPendingPassword } from '../iam/guards/must-change-password.guard';
 import { CatalogService } from '../catalog/catalog.service';
-import { StorageService } from '../media/storage.service';
 import { PublicService } from './public.service';
 import { CaptchaService } from './captcha.service';
-import { BookVisitDto, CreateConsignmentDto } from './dto/consignment.dto';
+import { BookVisitDto } from './dto/consignment.dto';
 import { CreateCreditRequestDto } from './dto/credit.dto';
 import { CreditRequestsService } from './credit-requests.service';
 import { SearchPublicProjectsDto } from './dto/public-projects.dto';
 import { SearchPublicPropertiesDto } from './dto/public-search.dto';
-import { DOCUMENT_FIELDS, storeConsignmentFiles } from './consignment-files';
 
 /**
  * Superficie publica: lo que consume la web de presentacion.
@@ -53,7 +42,6 @@ export class PublicController {
     private readonly service: PublicService,
     private readonly captcha: CaptchaService,
     private readonly catalog: CatalogService,
-    private readonly storage: StorageService,
     private readonly credits: CreditRequestsService,
   ) {}
 
@@ -169,53 +157,19 @@ export class PublicController {
   }
 
   // --- consignaciones ----------------------------------------------------
-
-  @Post('consignments')
-  @Throttle({ default: { limit: 3, ttl: 300_000 } })
-  @UseInterceptors(
-    FileFieldsInterceptor([
-      // Un campo por documento y no un `documents[]` suelto: asi la categoria
-      // la pone el formulario, que es quien la sabe, y no hay que adivinarla
-      // luego por el nombre del fichero.
-      ...DOCUMENT_FIELDS.map((field) => ({ name: field.name, maxCount: 1 })),
-      // Se conserva el campo antiguo para no romper a quien ya llame asi.
-      { name: 'documents', maxCount: 5 },
-      { name: 'photos', maxCount: 20 },
-    ]),
-  )
-  @ApiConsumes('multipart/form-data', 'application/json')
-  @ApiBody({
-    description:
-      'Datos del formulario, `photos`, y un PDF por categoria en ' +
-      '`docTradition`, `docDeed`, `docId`, `docTax` y `docMaintenance`. ' +
-      'Si no se envian ficheros vale JSON plano.',
-    type: CreateConsignmentDto,
-  })
-  @ApiOperation({ summary: 'Propone un inmueble para consignacion' })
-  async createConsignment(
-    @Body() dto: CreateConsignmentDto,
-    @Req() req: Request,
-    @UploadedFiles()
-    uploaded?: Record<string, Express.Multer.File[] | undefined>,
-  ) {
-    await this.captcha.verify(dto.captchaToken, ip(req));
-    const request = await this.service.createConsignment(dto, ip(req));
-
-    const files = await storeConsignmentFiles(
-      this.storage,
-      request.id,
-      uploaded,
-    );
-
-    if (files.length) await this.service.attachFiles(request.id, files);
-
-    return {
-      reference: request.reference,
-      message:
-        'Recibimos tu solicitud. Un asesor la revisara y te contactara para coordinar la visita.',
-      files: files.length,
-    };
-  }
+  //
+  // Aqui habia un `POST consignments` abierto, sin sesion y con captcha. Se
+  // retira: la web pide cuenta antes de abrir el formulario, asi que ese
+  // endpoint no lo llamaba ya nadie y quedaba como lo que era — una escritura
+  // anonima que crea un cliente en la cartera y acepta ficheros, sin nadie
+  // detras a quien preguntar. El captcha frena a un robot torpe, no a quien se
+  // moleste en mirar.
+  //
+  // Las consignaciones entran ahora por `POST /portal/consignments`, que sabe
+  // de quien es el inmueble porque lo dice la sesion y no el formulario.
+  //
+  // Las dos consultas de abajo se quedan: son de lectura y con una referencia
+  // que solo tiene quien la envio.
 
   // --- creditos ----------------------------------------------------------
 

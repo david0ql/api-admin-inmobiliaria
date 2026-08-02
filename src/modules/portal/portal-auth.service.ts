@@ -9,6 +9,8 @@ import { Client } from '../crm/domain/client.entity';
 import { LeadSource } from '../crm/domain/lead-source.entity';
 import { PipelinesService } from '../crm/pipelines.service';
 import { normalizePhone } from '../crm/clients.service';
+import { ActivitiesService } from '../activity/activities.service';
+import { ActivityType } from '../activity/domain/activity.entity';
 import { ClientRefreshToken } from './domain/client-refresh-token.entity';
 import {
   CLIENT_TOKEN_TYPE,
@@ -63,6 +65,7 @@ export class PortalAuthService {
     @InjectRepository(LeadSource)
     private readonly sources: Repository<LeadSource>,
     private readonly pipelines: PipelinesService,
+    private readonly activities: ActivitiesService,
     private readonly jwt: JwtService,
     private readonly config: AppConfigService,
     private readonly dataSource: DataSource,
@@ -109,6 +112,37 @@ export class PortalAuthService {
       .getOne();
 
     if (existing) {
+      /*
+        Un aviso en el log no lo lee nadie, y del otro lado hay una persona
+        esperando: acaba de rellenar el formulario, ha leido que ya puede
+        entrar, y al intentarlo se va a encontrar un 401 sin explicacion.
+
+        Asi que se le deja el caso al asesor en la ficha del cliente, que es
+        donde mira. Lo que se le contesta al visitante no cambia —sigue siendo
+        la misma frase exista o no el correo, o el formulario seria un oraculo
+        para preguntar "¿es X cliente de esta agencia?"— pero ahora hay alguien
+        que puede llamarle.
+
+        Vale tambien para el caso incomodo: el movil coincide pero la persona
+        es otra. Con 554 moviles repetidos en la cartera eso pasa, y solo se
+        resuelve hablando.
+      */
+      const porTelefono =
+        existing.email?.toLowerCase() !== email && phoneNormalized
+          ? ` El correo no coincide: entro por el movil ${dto.cellPhone.trim()}, que puede ser de otra persona.`
+          : '';
+
+      await this.activities.record({
+        type: ActivityType.NOTE,
+        clientId: existing.id,
+        summary: 'Intento de crear cuenta en el portal',
+        detail:
+          `${dto.firstName.trim()} ${dto.lastName.trim()} intento registrarse con ${email} ` +
+          `y el movil ${dto.cellPhone.trim()}, y ya existe esta ficha.${porTelefono}` +
+          ' No se le dio acceso: hay que comprobar con quien se habla y darselo desde el panel.',
+        automatic: true,
+      });
+
       this.logger.warn(
         `Alta en el portal rechazada: ${email} ya existe en la cartera (cliente ${existing.id}). ` +
           `IP ${meta.ipAddress ?? 'desconocida'}.`,
