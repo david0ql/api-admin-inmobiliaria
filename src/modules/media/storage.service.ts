@@ -40,13 +40,17 @@ const MAX_INPUT_PIXELS = 100_000_000;
 /** Anchos derivados: listado, tarjeta en movil, ficha y archivo. */
 const THUMB_WIDTH = 560;
 /**
- * El tamano intermedio existe por los moviles. Una tarjeta ocupa el ancho de
- * pantalla — 412 px logicos — pero a densidad 1,75 el navegador necesita 721 px
- * reales, y al no llegarle el thumb saltaba a la de 1600 px: 405 kB por
- * tarjeta en lugar de 43. Con este paso intermedio baja a ~120 kB sin que se
- * note en pantalla.
+ * El tamano intermedio existe por los moviles. Una foto a pantalla completa
+ * ocupa 412 px logicos, pero a densidad 1,75 el navegador necesita 721 px
+ * reales; sin este paso saltaba a la de 1600 px, o sea 405 kB por foto en
+ * lugar de 43.
+ *
+ * 800 y no 1024: 1024 son un 40% de pixeles de mas sobre los 721 que hacen
+ * falta, y esta es la foto que el navegador cronometra para decidir si la ficha
+ * va rapida. Bajarla a 800 son ~60 kB menos en la unica imagen que el visitante
+ * esta esperando ver, y a 1,94 veces la densidad de la pantalla no se aprecia.
  */
-const MEDIUM_WIDTH = 1024;
+const MEDIUM_WIDTH = 800;
 const LARGE_WIDTH = 1600;
 /**
  * El archivo se topa en 2560 px. Las camaras suben fotos de 4032 px que nadie

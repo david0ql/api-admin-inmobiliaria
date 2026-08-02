@@ -11,10 +11,12 @@ import { PropertyImage } from '../modules/properties/domain/property-image.entit
 loadDotenv();
 const env = validateEnv(process.env);
 const DRY_RUN = process.argv.includes('--dry-run');
+/** Rehace tambien las que ya existen: hace falta al cambiar el ancho. */
+const FORCE = process.argv.includes('--force');
 const CONCURRENCY = Math.max(2, cpus().length);
 
 /** Debe coincidir con `MEDIUM_WIDTH` de StorageService. */
-const MEDIUM_WIDTH = 1024;
+const MEDIUM_WIDTH = 800;
 
 sharp.concurrency(1);
 sharp.cache({ files: 0 });
@@ -47,16 +49,22 @@ async function main() {
     });
     console.log(`  ${images.length} imagenes en la base\n`);
 
-    const pending = images.filter((image) => {
-      const mediumKey = image.storageKey.replace(/-o\.webp$/, '-m.webp');
-      return !image.urlMedium || !existsSync(join(root, mediumKey));
-    });
+    const pending = FORCE
+      ? images
+      : images.filter((image) => {
+          const mediumKey = image.storageKey.replace(/-o\.webp$/, '-m.webp');
+          return !image.urlMedium || !existsSync(join(root, mediumKey));
+        });
 
     if (!pending.length) {
       console.log('  Nada que hacer: todas tienen su variante intermedia.');
       return;
     }
-    console.log(`  ${pending.length} sin variante intermedia`);
+    console.log(
+      FORCE
+        ? `  ${pending.length} a rehacer (--force)`
+        : `  ${pending.length} sin variante intermedia`,
+    );
 
     if (DRY_RUN) {
       console.log('\nSimulacion terminada: no se ha escrito nada.');
