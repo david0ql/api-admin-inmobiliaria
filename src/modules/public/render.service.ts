@@ -154,6 +154,15 @@ export class RenderService {
         meta('property', 'og:image', this.site + cover.urlLarge),
         meta('property', 'og:image:alt', property.title),
         meta('name', 'twitter:image', this.site + cover.urlLarge),
+        // El esqueleto de la ficha lo usa para pintar la portada en cuanto
+        // monta React, sin esperar a que la API conteste: la foto ya esta
+        // descargada por el `preload` de arriba, solo faltaba saber cual era.
+        `<script>window.__ficha=${jsonSeguro({
+          code: property.code,
+          url: cover.urlLarge,
+          srcset,
+          alt: cover.description ?? `${property.title} — foto 1`,
+        })}</script>`,
       );
     }
 
@@ -279,6 +288,11 @@ function sinCabeceraGenerica(html: string): string {
   }
 
   return salida;
+}
+
+/** JSON dentro de un `<script>`: `</script>` en un titulo cerraria la etiqueta. */
+function jsonSeguro(data: unknown): string {
+  return JSON.stringify(data).replace(/</g, '\\u003c');
 }
 
 function meta(kind: 'name' | 'property', key: string, value: string): string {
