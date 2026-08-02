@@ -83,7 +83,10 @@ export class RenderService {
     }
 
     const shell = await this.shell();
-    return shell.replace('</head>', this.head(property) + '</head>');
+    return sinCabeceraGenerica(shell).replace(
+      '</head>',
+      this.head(property) + '</head>',
+    );
   }
 
   private head(property: Property): string {
@@ -236,6 +239,46 @@ export class RenderService {
         : undefined,
     };
   }
+}
+
+/**
+ * Quita del armazon las etiquetas que esta ficha va a poner por su cuenta.
+ *
+ * Sin esto quedan dos `<title>` y dos `og:title`: el navegador y las redes
+ * sociales se quedan con el primero, que es justo el generico que se venia a
+ * sustituir. El resto de la cabecera —og:site_name, la tipografia, el idioma—
+ * se queda como esta.
+ */
+function sinCabeceraGenerica(html: string): string {
+  const CLAVES = [
+    'description',
+    'robots',
+    'og:type',
+    'og:title',
+    'og:description',
+    'og:url',
+    'og:image',
+    'twitter:card',
+    'twitter:title',
+    'twitter:description',
+    'twitter:image',
+  ];
+
+  let salida = html
+    .replace(/<title>[\s\S]*?<\/title>/i, '')
+    .replace(/<link[^>]*rel="canonical"[^>]*>/i, '');
+
+  for (const clave of CLAVES) {
+    salida = salida.replace(
+      new RegExp(
+        `<meta[^>]*(?:name|property)="${clave.replace(':', ':')}"[^>]*>`,
+        'gi',
+      ),
+      '',
+    );
+  }
+
+  return salida;
 }
 
 function meta(kind: 'name' | 'property', key: string, value: string): string {
