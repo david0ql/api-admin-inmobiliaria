@@ -204,7 +204,7 @@ export class RenderService {
         '@type': 'BreadcrumbList',
         itemListElement: [
           { name: 'Inicio', url: `${this.site}/` },
-          { name: 'Ventas', url: `${this.site}/s/ventas` },
+          { name: 'Ventas', url: `${this.site}/venta` },
           { name: property.title, url },
         ].map((step, index) => ({
           '@type': 'ListItem',

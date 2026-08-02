@@ -12,14 +12,21 @@ import {
 
 const VISIBLE = [PublicationStatus.ACTIVE, PublicationStatus.OUTSTANDING];
 
-/** Rutas fijas del sitio publico, con la importancia que les corresponde. */
+/**
+ * Rutas fijas del sitio publico, con la importancia que les corresponde.
+ *
+ * Son las de `ROUTES` en `web-sell/src/lib/site.ts`. Las viejas de WASI
+ * (`/s/ventas`, `/main-*.htm`) NO van aqui aunque sigan respondiendo: un
+ * sitemap que anuncia una URL que redirige le esta pidiendo al buscador que
+ * indexe el destino por el camino largo.
+ */
 const STATIC_ROUTES: { path: string; priority: number; changefreq: string }[] =
   [
     { path: '/', priority: 1.0, changefreq: 'daily' },
-    { path: '/s/ventas', priority: 0.9, changefreq: 'daily' },
+    { path: '/venta', priority: 0.9, changefreq: 'daily' },
     { path: '/proyectos', priority: 0.8, changefreq: 'weekly' },
-    { path: '/main-contactenos.htm', priority: 0.4, changefreq: 'yearly' },
-    { path: '/main-contenido-cat-6.htm', priority: 0.2, changefreq: 'yearly' },
+    { path: '/contacto', priority: 0.4, changefreq: 'yearly' },
+    { path: '/privacidad', priority: 0.2, changefreq: 'yearly' },
   ];
 
 @Injectable()
@@ -103,7 +110,7 @@ export class SeoService {
     // hace la gente, y merece su propia URL indexable.
     for (const type of types) {
       urls.push(
-        entry(`${this.site}/s/${slugify(type.name)}/ventas`, now, 'daily', 0.7),
+        entry(`${this.site}/venta/${slugify(type.name)}`, now, 'daily', 0.7),
       );
     }
 
