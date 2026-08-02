@@ -154,15 +154,23 @@ export class RenderService {
         meta('property', 'og:image', this.site + cover.urlLarge),
         meta('property', 'og:image:alt', property.title),
         meta('name', 'twitter:image', this.site + cover.urlLarge),
-        // El esqueleto de la ficha lo usa para pintar la portada en cuanto
+        // El esqueleto de la ficha lo lee para pintar la portada en cuanto
         // monta React, sin esperar a que la API conteste: la foto ya esta
         // descargada por el `preload` de arriba, solo faltaba saber cual era.
-        `<script>window.__ficha=${jsonSeguro({
-          code: property.code,
-          url: cover.urlLarge,
-          srcset,
-          alt: cover.description ?? `${property.title} — foto 1`,
-        })}</script>`,
+        //
+        // Va en un `meta` y no en un `<script>` inline porque la politica de
+        // seguridad de la API no permite scripts en linea, y esa politica esta
+        // bien como esta: no se debilita por un dato de cuatro campos.
+        meta(
+          'name',
+          'ficha:portada',
+          JSON.stringify({
+            code: property.code,
+            url: cover.urlLarge,
+            srcset,
+            alt: cover.description ?? `${property.title} — foto 1`,
+          }),
+        ),
       );
     }
 
@@ -288,11 +296,6 @@ function sinCabeceraGenerica(html: string): string {
   }
 
   return salida;
-}
-
-/** JSON dentro de un `<script>`: `</script>` en un titulo cerraria la etiqueta. */
-function jsonSeguro(data: unknown): string {
-  return JSON.stringify(data).replace(/</g, '\\u003c');
 }
 
 function meta(kind: 'name' | 'property', key: string, value: string): string {
