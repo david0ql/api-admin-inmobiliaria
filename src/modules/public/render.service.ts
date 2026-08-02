@@ -138,7 +138,7 @@ export class RenderService {
       // un ancho y luego descarga otro: dos fotos por el precio de una.
       const srcset = [
         `${cover.url} 560w`,
-        cover.urlMedium ? `${cover.urlMedium} 1024w` : '',
+        cover.urlMedium ? `${cover.urlMedium} 800w` : '',
         `${cover.urlLarge} 1600w`,
         cover.urlOriginal ? `${cover.urlOriginal} 2560w` : '',
       ]

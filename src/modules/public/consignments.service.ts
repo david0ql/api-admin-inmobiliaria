@@ -244,8 +244,20 @@ export class ConsignmentsService {
         );
       }
 
+      /*
+       * Si la solicitud vino del portal ya sabemos de quien es: se usa esa
+       * ficha y no se busca por telefono, que es la heuristica para cuando no
+       * hay nada mejor.
+       */
       const phoneNormalized = normalizePhone(request.ownerPhone);
-      let client = phoneNormalized
+      let client = request.clientId
+        ? await manager.findOne(Client, {
+            where: { id: request.clientId },
+            loadEagerRelations: false,
+          })
+        : null;
+
+      client ??= phoneNormalized
         ? await manager.findOne(Client, {
             where: { phoneNormalized },
             loadEagerRelations: false,
@@ -268,6 +280,18 @@ export class ConsignmentsService {
             lastContactedAt: new Date(),
           }),
         );
+      } else if (!client.assignedAgentId) {
+        /*
+         * Quien acepta la consignacion se hace cargo. Sin esto, el propietario
+         * que se registro solo en el portal veria "sin asesor asignado" para
+         * siempre, aunque alguien ya este trabajando su inmueble.
+         */
+        await manager.update(
+          Client,
+          { id: client.id },
+          { assignedAgentId: actor.id, lastContactedAt: new Date() },
+        );
+        client.assignedAgentId = actor.id;
       }
 
       await manager.save(

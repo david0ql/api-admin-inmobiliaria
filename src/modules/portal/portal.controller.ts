@@ -17,12 +17,13 @@ import {
   DOCUMENT_FIELDS,
   storeConsignmentFiles,
 } from '../public/consignment-files';
-import { CreateConsignmentDto } from '../public/dto/consignment.dto';
+
 import { PublicService } from '../public/public.service';
 import { StorageService } from '../media/storage.service';
 import { ClientAuthGuard, CurrentClient } from './client-auth.guard';
 import type { AuthenticatedClient } from './client-jwt.strategy';
 import { PortalService } from './portal.service';
+import { PortalConsignmentDto } from './dto/portal.dto';
 
 /**
  * El portal del propietario.
@@ -75,7 +76,7 @@ export class PortalController {
     ]),
   )
   @ApiConsumes('multipart/form-data', 'application/json')
-  @ApiBody({ type: CreateConsignmentDto })
+  @ApiBody({ type: PortalConsignmentDto })
   @ApiOperation({
     summary: 'Propone otro inmueble, ya identificado',
     description:
@@ -85,7 +86,7 @@ export class PortalController {
   })
   async createConsignment(
     @CurrentClient() client: AuthenticatedClient,
-    @Body() dto: CreateConsignmentDto,
+    @Body() dto: PortalConsignmentDto,
     @Req() req: Request,
     @UploadedFiles()
     uploaded?: Record<string, Express.Multer.File[] | undefined>,

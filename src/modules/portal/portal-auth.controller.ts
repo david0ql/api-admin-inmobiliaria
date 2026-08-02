@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   HttpCode,
   Post,
   Req,
@@ -194,5 +195,5 @@ function assertSameOrigin(req: Request, config: AppConfigService): void {
   const allowed = config.corsOrigins;
   if (allowed.includes('*') || allowed.includes(origin)) return;
 
-  throw new Error(`Origen no permitido: ${origin}`);
+  throw new ForbiddenException('Origen no permitido');
 }

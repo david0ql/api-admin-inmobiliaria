@@ -1,4 +1,5 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, OmitType } from '@nestjs/swagger';
+import { CreateConsignmentDto } from '../../public/dto/consignment.dto';
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
@@ -126,3 +127,20 @@ export class PortalAccessDto {
   @IsBoolean()
   enabled?: boolean;
 }
+
+/**
+ * Consignar desde el portal.
+ *
+ * Es el formulario publico MENOS los datos del propietario: quien esta dentro
+ * ya esta identificado, y la API los toma de la sesion. Omitirlos del DTO y no
+ * solo ignorarlos en el controlador es lo que hace que la garantia sea real —
+ * con `forbidNonWhitelisted`, mandarlos es un 400, no un intento silencioso de
+ * consignar a nombre de otro.
+ */
+export class PortalConsignmentDto extends OmitType(CreateConsignmentDto, [
+  'ownerFirstName',
+  'ownerLastName',
+  'ownerEmail',
+  'ownerPhone',
+  'captchaToken',
+] as const) {}
