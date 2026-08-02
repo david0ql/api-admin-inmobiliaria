@@ -125,6 +125,50 @@ export const envSchema = z.object({
   UPLOADS_DIR: z.string().default('./uploads'),
   /** Tamano maximo por archivo en la subida, en megabytes. */
   UPLOAD_MAX_MB: z.coerce.number().int().positive().max(100).default(15),
+
+  // --- asistente conversacional de la web publica ------------------------
+  //
+  // El chat de la web contesta preguntas sobre el inventario. El modelo NO
+  // conoce los datos: solo puede pedirlos a las herramientas que golpean esta
+  // misma API, asi que ningun precio ni ninguna alcoba sale de su imaginacion.
+  //
+  // La clave vive SOLO aqui, en el servidor. El navegador nunca la ve: todas
+  // las llamadas al proveedor salen de la API. Si no hay clave, el asistente se
+  // apaga y el endpoint devuelve 503 — el resto del sitio sigue igual.
+
+  /** Enciende o apaga el chat sin tocar nada mas. */
+  CHAT_ENABLED: bool.default(true),
+
+  /**
+   * Proveedor del modelo. Hoy solo `openai`; la interfaz `ChatProvider` deja
+   * enchufar otro sin tocar el servicio.
+   */
+  CHAT_PROVIDER: z.enum(['openai']).default('openai'),
+
+  /** Clave del proveedor. Sin ella el asistente queda apagado. */
+  OPENAI_API_KEY: z.string().optional(),
+
+  /**
+   * Modelo. `gpt-4.1-mini` es el punto dulce coste/latencia con buen uso de
+   * herramientas; `gpt-5.4-mini` u otro se ponen aqui sin tocar codigo.
+   */
+  CHAT_MODEL: z.string().default('gpt-4.1-mini'),
+
+  /** Base del API del proveedor. Se deja configurable para proxys o Azure. */
+  CHAT_BASE_URL: z.string().default('https://api.openai.com/v1'),
+
+  /**
+   * Techo de mensajes del historial que el cliente puede enviar por turno. El
+   * hilo es efimero —no se guarda nada— y esto acota lo que entra al modelo:
+   * ni coste desbocado ni un cliente empujando megas de texto.
+   */
+  CHAT_MAX_MESSAGES: z.coerce.number().int().min(2).max(80).default(40),
+
+  /** Longitud maxima de un mensaje del visitante, en caracteres. */
+  CHAT_MAX_CHARS: z.coerce.number().int().min(200).max(20_000).default(4_000),
+
+  /** Tope de vueltas del bucle de herramientas por turno: acota el gasto. */
+  CHAT_MAX_STEPS: z.coerce.number().int().min(1).max(12).default(6),
 });
 
 export type Env = z.infer<typeof envSchema>;

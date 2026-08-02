@@ -19,6 +19,7 @@ import { SchedulingModule } from './modules/scheduling/scheduling.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { PublicModule } from './modules/public/public.module';
 import { PortalModule } from './modules/portal/portal.module';
+import { AssistantModule } from './modules/assistant/assistant.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { PortalModule } from './modules/portal/portal.module';
     AnalyticsModule,
     PublicModule,
     PortalModule,
+    AssistantModule,
   ],
   controllers: [HealthController],
   providers: [

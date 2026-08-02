@@ -111,4 +111,23 @@ export class AppConfigService {
   get uploadMaxBytes() {
     return this.get('UPLOAD_MAX_MB') * 1024 * 1024;
   }
+
+  /**
+   * El asistente de la web. `enabled` es la conjuncion de la bandera y de que
+   * haya clave: sin `OPENAI_API_KEY` no hay chat aunque `CHAT_ENABLED` sea
+   * cierto, y asi el servicio no tiene que repetir la comprobacion.
+   */
+  get chat() {
+    const apiKey = this.get('OPENAI_API_KEY');
+    return {
+      enabled: this.get('CHAT_ENABLED') && Boolean(apiKey),
+      provider: this.get('CHAT_PROVIDER'),
+      apiKey,
+      model: this.get('CHAT_MODEL'),
+      baseUrl: this.get('CHAT_BASE_URL'),
+      maxMessages: this.get('CHAT_MAX_MESSAGES'),
+      maxChars: this.get('CHAT_MAX_CHARS'),
+      maxSteps: this.get('CHAT_MAX_STEPS'),
+    };
+  }
 }

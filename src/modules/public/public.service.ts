@@ -32,7 +32,10 @@ import {
   AppointmentStatus,
   AppointmentType,
 } from '../scheduling/domain/appointment.entity';
-import { AvailabilityService } from '../scheduling/availability.service';
+import {
+  AvailabilityService,
+  type DayAvailability,
+} from '../scheduling/availability.service';
 import {
   ConsignmentRequest,
   ConsignmentStatus,
@@ -222,6 +225,32 @@ export class PublicService {
 
   /** Ficha pública por código. El uuid no se expone fuera. */
   async propertyByCode(code: string): Promise<PublicProperty> {
+    const property = await this.loadPublicProperty(code);
+
+    // Una visita a la ficha pública es la señal de interés más barata que hay.
+    await this.properties.increment({ id: property.id }, 'visits', 1);
+
+    return Object.assign(property, {
+      agent: await this.publicAgent(property.assignedAgentId),
+    });
+  }
+
+  /**
+   * La misma ficha, pero SIN contar la visita.
+   *
+   * La usa el asistente: en un mismo hilo puede consultar el inmueble varias
+   * veces —precio, luego fotos, luego disponibilidad—, y cada consulta no es
+   * una visita nueva. El contador de `visits` mide interés real desde la ficha,
+   * y triplicarlo por cada charla lo volveria ruido.
+   */
+  async propertyByCodeQuiet(code: string): Promise<PublicProperty> {
+    const property = await this.loadPublicProperty(code);
+    return Object.assign(property, {
+      agent: await this.publicAgent(property.assignedAgentId),
+    });
+  }
+
+  private async loadPublicProperty(code: string): Promise<Property> {
     const property = await this.properties
       .createQueryBuilder('property')
       .leftJoinAndSelect('property.propertyType', 'propertyType')
@@ -242,12 +271,7 @@ export class PublicService {
     if (!property)
       throw new NotFoundException(`Inmueble ${code} no encontrado`);
 
-    // Una visita a la ficha pública es la señal de interés más barata que hay.
-    await this.properties.increment({ id: property.id }, 'visits', 1);
-
-    return Object.assign(property, {
-      agent: await this.publicAgent(property.assignedAgentId),
-    });
+    return property;
   }
 
   /**
@@ -361,7 +385,11 @@ export class PublicService {
   // --- agenda ------------------------------------------------------------
 
   /** Días con hueco para visitar un inmueble. */
-  async availabilityFor(code: string, from: string, to: string) {
+  async availabilityFor(
+    code: string,
+    from: string,
+    to: string,
+  ): Promise<DayAvailability[]> {
     const property = await this.properties.findOne({
       where: { code },
       loadEagerRelations: false,
