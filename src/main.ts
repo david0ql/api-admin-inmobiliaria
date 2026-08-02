@@ -19,9 +19,10 @@ async function bootstrap() {
   });
 
   // `robots.txt` y `sitemap.xml` tienen que vivir en la raiz del dominio: un
-  // buscador no los busca bajo /api/v1.
+  // buscador no los busca bajo /api/v1. `render` va con ellos porque devuelve
+  // paginas del sitio, no datos, y nginx lo pide por la ruta publica.
   app.setGlobalPrefix(config.apiPrefix, {
-    exclude: ['robots.txt', 'sitemap.xml'],
+    exclude: ['robots.txt', 'sitemap.xml', 'render/:slug/:code'],
   });
 
   // Las fotos del inventario se sirven desde el propio servidor. Se cachean un
