@@ -507,14 +507,22 @@ function fullView(p: PublicProperty) {
   };
 }
 
-/** La ruta de la ficha en la web publica: `/venta/<tipo>-en-<zona>/<code>`. */
+/**
+ * La ruta de la ficha: `/<tipo>-en-<zona>/<code>`.
+ *
+ * DOS segmentos, no tres. La web declara la ficha como `:slug/:code`, asi que
+ * un `/venta/<slug>/<code>` no encaja con ninguna ruta y el visitante acaba en
+ * la portada — con la tarjeta del inmueble delante y sin llegar nunca a el.
+ * Tampoco lo reconoce el patron de nginx que sirve la cabecera del inmueble,
+ * asi que ademas se compartiria sin foto ni precio.
+ */
 function propertyPath(p: Property): string {
   const parts = [p.propertyType?.name, p.zone?.name ?? p.city?.name]
     .filter(Boolean)
     .map(slugify)
     .join('-en-');
   const slug = parts || 'inmueble';
-  return `/venta/${slug}/${p.code}`;
+  return `/${slug}/${p.code}`;
 }
 
 // --- especificaciones de las herramientas -----------------------------------
