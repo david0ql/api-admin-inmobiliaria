@@ -29,7 +29,7 @@ async function main() {
     const repo = app.get(DataSource).getRepository(Agent);
 
     const agents = await repo.find({
-      select: { id: true, fullName: true, photoUrl: true },
+      select: { id: true, firstName: true, lastName: true, photoUrl: true },
     });
 
     const pending = agents.filter(
@@ -44,17 +44,21 @@ async function main() {
     for (const agent of pending) {
       const stored = await storage.saveFromUrl(agent.photoUrl!, 'agents');
       if (!stored) {
-        logger.warn(`${agent.fullName}: no se pudo traer ${agent.photoUrl}`);
+        logger.warn(`${nombre(agent)}: no se pudo traer ${agent.photoUrl}`);
         continue;
       }
 
       // La de perfil se enseña a 96 px como mucho: basta la variante pequeña.
       await repo.update({ id: agent.id }, { photoUrl: stored.url });
-      console.log(`  ${agent.fullName} -> ${stored.url}`);
+      console.log(`  ${nombre(agent)} -> ${stored.url}`);
     }
   } finally {
     await app.close();
   }
+}
+
+function nombre(agent: Agent): string {
+  return [agent.firstName, agent.lastName].filter(Boolean).join(' ');
 }
 
 main().catch((error: unknown) => {
