@@ -28,6 +28,7 @@ import { StorageService } from '../media/storage.service';
 import { PublicService } from './public.service';
 import { CaptchaService } from './captcha.service';
 import { BookVisitDto, CreateConsignmentDto } from './dto/consignment.dto';
+import { SearchPublicProjectsDto } from './dto/public-projects.dto';
 import { SearchPublicPropertiesDto } from './dto/public-search.dto';
 import type { ConsignmentFile } from './domain/consignment-request.entity';
 
@@ -80,16 +81,13 @@ export class PublicController {
   // --- proyectos ---------------------------------------------------------
 
   @Get('projects')
-  @ApiQuery({ name: 'cityId', required: false, type: Number })
   @ApiOperation({
     summary: 'Proyectos y conjuntos',
     description:
       'Cada uno con sus tipologias, unidades disponibles y precio desde.',
   })
-  projects(
-    @Query('cityId', new ParseIntPipe({ optional: true })) cityId?: number,
-  ) {
-    return this.service.listFamilies(cityId);
+  projects(@Query() dto: SearchPublicProjectsDto) {
+    return this.service.listFamilies(dto);
   }
 
   @Get('projects/:slug')

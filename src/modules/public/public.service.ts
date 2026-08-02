@@ -39,6 +39,7 @@ import {
   type ConsignmentFile,
 } from './domain/consignment-request.entity';
 import type { BookVisitDto, CreateConsignmentDto } from './dto/consignment.dto';
+import type { SearchPublicProjectsDto } from './dto/public-projects.dto';
 import type { SearchPublicPropertiesDto } from './dto/public-search.dto';
 
 /** Solo se enseña fuera lo publicado; el resto ni existe para la web. */
@@ -57,6 +58,13 @@ export interface PublicAgent {
 }
 
 export type PublicProperty = Property & { agent: PublicAgent | null };
+
+/** Proyecto de cara al listado: la familia mas lo que resume su oferta. */
+export type PublicFamily = PropertyFamily & {
+  unitTypeCount: number;
+  availableUnits: number;
+  fromPrice: number | null;
+};
 
 @Injectable()
 export class PublicService {
@@ -286,7 +294,12 @@ export class PublicService {
 
   // --- proyectos ---------------------------------------------------------
 
-  async listFamilies(cityId?: number) {
+  async listFamilies(
+    dto: SearchPublicProjectsDto = {},
+  ): Promise<Paginated<PublicFamily>> {
+    const page = dto.page ?? 1;
+    const limit = Math.min(dto.limit ?? 12, 48);
+
     const qb = this.families
       .createQueryBuilder('family')
       .leftJoinAndSelect('family.city', 'city')
@@ -294,13 +307,25 @@ export class PublicService {
       .where('family.published = true')
       .andWhere('family.parent_id IS NULL');
 
-    if (cityId) qb.andWhere('family.city_id = :cityId', { cityId });
+    if (dto.q?.trim()) {
+      qb.andWhere('LOWER(family.name) LIKE :q', {
+        q: `%${dto.q.trim().toLowerCase()}%`,
+      });
+    }
+    if (dto.cityId)
+      qb.andWhere('family.city_id = :cityId', { cityId: dto.cityId });
 
-    const families = await qb.orderBy('family.name', 'ASC').getMany();
+    const [families, total] = await qb
+      .orderBy('family.name', 'ASC')
+      .addOrderBy('family.id', 'ASC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
 
     // Cada proyecto viaja con su recuento de unidades disponibles y su rango
-    // de precio: sin eso, el listado es una lista de nombres.
-    return Promise.all(
+    // de precio: sin eso, el listado es una lista de nombres. Solo se calcula
+    // para la pagina que se devuelve, no para el catalogo entero.
+    const data = await Promise.all(
       families.map(async (family) => {
         const unitTypes = await this.familiesService.unitTypes(family.id, {
           publicOnly: true,
@@ -316,6 +341,8 @@ export class PublicService {
         };
       }),
     );
+
+    return new Paginated(data, total, page, limit);
   }
 
   async familyBySlug(slug: string) {
