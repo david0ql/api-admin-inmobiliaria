@@ -88,6 +88,10 @@ export class AppConfigService {
     return this.get('PUBLIC_SITE_URL');
   }
 
+  get publicSiteDist() {
+    return this.get('PUBLIC_SITE_DIST');
+  }
+
   get publicBookingLeadHours() {
     return this.get('PUBLIC_BOOKING_LEAD_HOURS');
   }

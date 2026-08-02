@@ -1,8 +1,8 @@
-import { Controller, Get, Header } from '@nestjs/common';
+import { Controller, Get, Header, Param } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
-import type { Response } from 'express';
 import { Public } from '../iam/decorators';
 import { AllowPendingPassword } from '../iam/guards/must-change-password.guard';
+import { RenderService } from './render.service';
 import { SeoService } from './seo.service';
 
 /**
@@ -20,7 +20,10 @@ import { SeoService } from './seo.service';
 @AllowPendingPassword()
 @Controller()
 export class SeoController {
-  constructor(private readonly seo: SeoService) {}
+  constructor(
+    private readonly seo: SeoService,
+    private readonly render: RenderService,
+  ) {}
 
   @Get('robots.txt')
   @Header('Content-Type', 'text/plain; charset=utf-8')
@@ -35,5 +38,23 @@ export class SeoController {
   @Header('Cache-Control', 'public, max-age=3600')
   async sitemap(): Promise<string> {
     return this.seo.sitemap();
+  }
+
+  /**
+   * La ficha de un inmueble con su cabecera ya escrita.
+   *
+   * Se la pide nginx para las URLs con la forma `/<titulo>/<codigo>`; el resto
+   * del sitio sigue saliendo del disco sin pasar por aqui. Si esto falla, nginx
+   * sirve el armazon de siempre: la ficha se vera igual, solo sin la cabecera.
+   *
+   * Sin `Cache-Control` publica: la respuesta lleva el precio y la
+   * disponibilidad, y un intermediario cacheandola durante horas es como se
+   * enseña un inmueble ya vendido.
+   */
+  @Get('render/:slug/:code')
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  @Header('Cache-Control', 'no-cache')
+  async property(@Param('code') code: string): Promise<string> {
+    return this.render.property(code);
   }
 }

@@ -66,6 +66,14 @@ export const envSchema = z.object({
     .string()
     .default('https://web-clientes-inmobiliaria.nordikhat.com'),
 
+  /**
+   * Donde deja el build del sitio publico su `index.html`. Es lo que se sirve,
+   * con la cabecera del inmueble inyectada, a las URL de ficha.
+   */
+  PUBLIC_SITE_DIST: z
+    .string()
+    .default('/var/www/web-clientes-inmobiliaria.nordikhat.com/dist'),
+
   /** Antelacion minima para pedir una visita desde la web, en horas. */
   PUBLIC_BOOKING_LEAD_HOURS: z.coerce
     .number()

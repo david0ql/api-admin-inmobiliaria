@@ -16,6 +16,7 @@ import { PublicController } from './public.controller';
 import { CaptchaService } from './captcha.service';
 import { ConsignmentsService } from './consignments.service';
 import { ConsignmentsController } from './consignments.controller';
+import { RenderService } from './render.service';
 import { SeoService } from './seo.service';
 import { SeoController } from './seo.controller';
 import { CreditRequestsService } from './credit-requests.service';
@@ -55,6 +56,7 @@ import { CreditRequestsController } from './credit-requests.controller';
     ConsignmentsService,
     CreditRequestsService,
     SeoService,
+    RenderService,
   ],
   exports: [PublicService, ConsignmentsService, CreditRequestsService],
 })
