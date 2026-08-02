@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import sharp from 'sharp';
 import { AppConfigService } from '../../shared/config/app-config.service';
 import { FileSecurityService, sanitizeName } from './file-security.service';
@@ -79,7 +79,21 @@ sharp.cache({ files: 0 });
 @Injectable()
 export class StorageService {
   private readonly logger = new Logger(StorageService.name);
+
+  /** Lo que se sirve en `/media/`: imagenes, que son el anuncio. */
   readonly root: string;
+
+  /**
+   * Lo que NO se sirve: escrituras, cedulas, certificados de tradicion.
+   *
+   * Carpeta HERMANA de `root` y no una subcarpeta suya. `useStaticAssets`
+   * publica el arbol entero de `root`, asi que cualquier cosa colgada de el es
+   * descargable por quien acierte la ruta — y un uuid en la URL es ocultar, no
+   * proteger: esas direcciones acaban en el historial, en los logs del proxy y
+   * en la cabecera `Referer`. Estando fuera, no hay `express.static` que las
+   * alcance aunque alguien se equivoque en el orden de los middlewares.
+   */
+  readonly privateRoot: string;
 
   constructor(
     private readonly config: AppConfigService,
@@ -87,6 +101,11 @@ export class StorageService {
   ) {
     const dir = config.uploadsDir;
     this.root = isAbsolute(dir) ? dir : resolve(process.cwd(), dir);
+    this.privateRoot = resolve(
+      this.root,
+      '..',
+      `${basename(this.root)}-private`,
+    );
   }
 
   /** Ruta publica desde la que Express sirve `uploads/`. */
@@ -244,18 +263,23 @@ export class StorageService {
   }
 
   /**
-   * Guarda un fichero tal cual, sin procesarlo. Es para documentos — una
-   * escritura o un certificado de tradicion es un PDF que hay que conservar
-   * byte a byte, no una imagen que recomprimir.
+   * Guarda un documento tal cual, sin procesarlo y FUERA de lo que se sirve.
+   *
+   * Sin reencodear porque una escritura es un PDF que hay que conservar byte a
+   * byte. Y fuera de `/media/` porque su contenido es la cedula y las
+   * escrituras de una persona: se piden por un endpoint que comprueba quien
+   * pregunta, no por una URL que vale para cualquiera que la tenga.
+   *
+   * No devuelve `url`: no hay ninguna publica, y devolver uno invitaria a
+   * pintarlo en un `<a href>` que no llevaria credencial.
    */
-  async saveRaw(
+  async savePrivate(
     buffer: Buffer,
     scope: string,
     originalName: string,
     { maxBytes = 10 * 1024 * 1024 } = {},
   ): Promise<{
     key: string;
-    url: string;
     bytes: number;
     originalName: string;
   }> {
@@ -277,15 +301,27 @@ export class StorageService {
     // El nombre en disco es un uuid y la extension sale de la firma, no del
     // nombre que envio el usuario: no hay travesia de rutas ni doble extension.
     const key = `${scope}/${randomUUID()}.${sniffed.extension}`;
-    await mkdir(join(this.root, scope), { recursive: true });
-    await writeFile(join(this.root, key), buffer, { mode: 0o644 });
+    await mkdir(join(this.privateRoot, scope), { recursive: true });
+    // 0600: el proceso lee y escribe; nadie mas en la maquina.
+    await writeFile(join(this.privateRoot, key), buffer, { mode: 0o600 });
 
-    return {
-      key,
-      url: this.publicUrl(key),
-      bytes: buffer.length,
-      originalName: safeName,
-    };
+    return { key, bytes: buffer.length, originalName: safeName };
+  }
+
+  /**
+   * Ruta en disco de un documento privado.
+   *
+   * La clave sale de la base, no de la URL, pero se comprueba igualmente que
+   * el resultado caiga dentro de `privateRoot`: el dia que alguien exponga un
+   * endpoint que acepte la clave desde fuera, `../../etc/passwd` ya esta
+   * cerrado.
+   */
+  privatePath(key: string): string {
+    const path = resolve(this.privateRoot, key);
+    if (path !== this.privateRoot && !path.startsWith(this.privateRoot + sep)) {
+      throw new BadRequestException('Ruta de documento invalida');
+    }
+    return path;
   }
 
   /** Borra las tres variantes a partir de la clave del original. */
@@ -299,9 +335,10 @@ export class StorageService {
     );
   }
 
-  /** Borra la carpeta completa de una entidad. */
+  /** Borra la carpeta completa de una entidad, en los dos almacenes. */
   async removeScope(scope: string): Promise<void> {
     await rm(join(this.root, scope), { recursive: true, force: true });
+    await rm(join(this.privateRoot, scope), { recursive: true, force: true });
   }
 
   /** Estado del almacenamiento, para diagnostico. */
@@ -311,6 +348,8 @@ export class StorageService {
 
   async ensureRoot(): Promise<void> {
     await mkdir(this.root, { recursive: true });
+    // 0700: la carpeta de documentos no la lista nadie mas.
+    await mkdir(this.privateRoot, { recursive: true, mode: 0o700 });
   }
 
   async fileExists(key: string): Promise<boolean> {

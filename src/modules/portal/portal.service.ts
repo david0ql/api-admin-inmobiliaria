@@ -201,6 +201,37 @@ export class PortalService {
   }
 
   /**
+   * Una solicitud suya, o nada.
+   *
+   * La comprobacion de pertenencia va aqui y no en el controlador para que no
+   * se pueda olvidar: quien quiera una solicitud del portal pasa por este
+   * metodo, y este metodo exige el `clientId` del token.
+   */
+  async ownRequest(
+    clientId: string,
+    email: string | null,
+    requestId: string,
+  ): Promise<ConsignmentRequest> {
+    const qb = this.consignments
+      .createQueryBuilder('request')
+      .where('request.id = :requestId', { requestId })
+      .andWhere('request.client_id = :clientId', { clientId });
+
+    if (email) {
+      qb.orWhere(
+        'request.id = :requestId AND LOWER(request.owner_email) = :email',
+        { requestId, email: email.toLowerCase() },
+      );
+    }
+
+    const request = await qb.getOne();
+    // Mismo 404 para "no existe" y "no es tuya": distinguirlos diria que
+    // solicitud existe con solo probar identificadores.
+    if (!request) throw new NotFoundException('Solicitud no encontrada');
+    return request;
+  }
+
+  /**
    * El asesor a cargo, recortado a la tarjeta de contacto que la agencia ya
    * publica en cada anuncio.
    */

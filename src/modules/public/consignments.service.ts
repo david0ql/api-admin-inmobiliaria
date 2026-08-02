@@ -223,17 +223,25 @@ export class ConsignmentsService {
 
       // Las fotos que subio el propietario ya estan procesadas en `uploads/`:
       // basta con colgarlas del inmueble.
-      const photos = request.files.filter((file) => file.kind === 'PHOTO');
+      // `url` es opcional en `ConsignmentFile` porque los documentos no tienen
+      // ninguna publica; las fotos siempre la traen, y una sin ella no serviria
+      // de imagen del anuncio.
+      const photos = request.files.filter(
+        (file) => file.kind === 'PHOTO' && file.url,
+      );
       if (photos.length) {
         await manager.save(
           photos.map((photo, index) =>
             manager.create(PropertyImage, {
               propertyId: property.id,
               storageKey: photo.storageKey,
-              url: photo.url,
-              urlMedium: photo.url.replace(/-t\.webp$/, '-m.webp'),
-              urlLarge: photo.url.replace(/-t\.webp$/, '-l.webp'),
-              urlOriginal: photo.url.replace(/-t\.webp$/, '-o.webp'),
+              url: photo.url as string,
+              urlMedium: (photo.url as string).replace(/-t\.webp$/, '-m.webp'),
+              urlLarge: (photo.url as string).replace(/-t\.webp$/, '-l.webp'),
+              urlOriginal: (photo.url as string).replace(
+                /-t\.webp$/,
+                '-o.webp',
+              ),
               sourceUrl: null,
               description: null,
               position: index + 1,

@@ -22,8 +22,9 @@ export const DOCUMENT_FIELDS = [
  * Guarda fotos y documentos de una solicitud.
  *
  * Las fotos pasan por el mismo procesado que el inventario —se recomprimen a
- * WebP en varios anchos—; los documentos se guardan tal cual, que un PDF no se
- * reencodea, pero pasando la inspeccion de firma de `saveRaw`.
+ * WebP en varios anchos— y quedan bajo `/media/`, porque acaban siendo el
+ * anuncio. Los documentos se guardan tal cual, que un PDF no se reencodea, y
+ * FUERA de lo que se sirve: son la cedula y las escrituras de una persona.
  *
  * Un fichero que falle no tumba el envio entero: se descarta y el resto entra.
  * Perder una foto es molesto; perder la solicitud completa por una foto es
@@ -55,14 +56,13 @@ export async function storeConsignmentFiles(
   for (const field of DOCUMENT_FIELDS) {
     for (const document of uploaded?.[field.name] ?? []) {
       const stored = await storage
-        .saveRaw(document.buffer, scope, document.originalname)
+        .savePrivate(document.buffer, scope, document.originalname)
         .catch(() => null);
       if (stored) {
         files.push({
           kind: 'DOCUMENT',
           docType: field.docType,
           storageKey: stored.key,
-          url: stored.url,
           originalName: document.originalname,
           bytes: stored.bytes,
         });
@@ -74,13 +74,12 @@ export async function storeConsignmentFiles(
   // etiquetar que perderlo.
   for (const document of uploaded?.documents ?? []) {
     const stored = await storage
-      .saveRaw(document.buffer, scope, document.originalname)
+      .savePrivate(document.buffer, scope, document.originalname)
       .catch(() => null);
     if (stored) {
       files.push({
         kind: 'DOCUMENT',
         storageKey: stored.key,
-        url: stored.url,
         originalName: document.originalname,
         bytes: stored.bytes,
       });

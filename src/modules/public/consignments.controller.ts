@@ -3,17 +3,22 @@ import {
   Controller,
   Get,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ConsignmentsService } from './consignments.service';
 import {
   ReviewConsignmentDto,
   SearchConsignmentsDto,
 } from './dto/consignment.dto';
+import { StorageService } from '../media/storage.service';
+import { streamConsignmentDocument } from './consignment-documents';
 import { CurrentUser, Roles } from '../iam/decorators';
 import { Role } from '../iam/domain/role.enum';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
@@ -22,7 +27,10 @@ import type { AuthenticatedActor } from '../../shared/request-context/request-co
 @ApiTags('consignments')
 @Controller('consignments')
 export class ConsignmentsController {
-  constructor(private readonly consignments: ConsignmentsService) {}
+  constructor(
+    private readonly consignments: ConsignmentsService,
+    private readonly storage: StorageService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Solicitudes de consignación, las nuevas primero' })
@@ -41,6 +49,23 @@ export class ConsignmentsController {
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.consignments.findById(id);
+  }
+
+  @Get(':id/documents/:index')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.AGENT)
+  @ApiOperation({
+    summary: 'Descarga un documento de la solicitud',
+    description:
+      'Las escrituras y las cédulas no se sirven como ficheros estáticos: se ' +
+      'piden aquí, con sesión, y no se cachean.',
+  })
+  async document(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('index', ParseIntPipe) index: number,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const request = await this.consignments.findById(id);
+    return streamConsignmentDocument(this.storage, request, index, res);
   }
 
   @Patch(':id/review')

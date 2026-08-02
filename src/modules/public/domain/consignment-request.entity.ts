@@ -60,7 +60,11 @@ export interface ConsignmentFile {
   /** Solo en los documentos: cual de los cinco es. */
   docType?: ConsignmentDocumentType;
   storageKey: string;
-  url: string;
+  /**
+   * Solo las FOTOS. Un documento no tiene URL publica: se pide por un endpoint
+   * que comprueba quien pregunta. Ver `StorageService.savePrivate`.
+   */
+  url?: string;
   originalName: string;
   bytes: number;
 }

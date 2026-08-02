@@ -2,8 +2,12 @@ import {
   Body,
   Controller,
   Get,
+  Param,
+  ParseIntPipe,
+  ParseUUIDPipe,
   Post,
   Req,
+  Res,
   UploadedFiles,
   UseGuards,
   UseInterceptors,
@@ -11,12 +15,13 @@ import {
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { Public } from '../iam/decorators';
 import {
   DOCUMENT_FIELDS,
   storeConsignmentFiles,
 } from '../public/consignment-files';
+import { streamConsignmentDocument } from '../public/consignment-documents';
 
 import { PublicService } from '../public/public.service';
 import { StorageService } from '../media/storage.service';
@@ -65,6 +70,27 @@ export class PortalController {
   @ApiOperation({ summary: 'Sus solicitudes de consignación y su estado' })
   requests(@CurrentClient() client: AuthenticatedClient) {
     return this.portal.requests(client.id, client.email || null);
+  }
+
+  @Get('requests/:id/documents/:index')
+  @ApiOperation({
+    summary: 'Descarga un documento que él mismo subió',
+    description:
+      'Solo de sus propias solicitudes. Una que no sea suya devuelve 404, no ' +
+      '403: decir "existe pero no es tuya" ya es contar algo.',
+  })
+  async document(
+    @CurrentClient() client: AuthenticatedClient,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('index', ParseIntPipe) index: number,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const request = await this.portal.ownRequest(
+      client.id,
+      client.email || null,
+      id,
+    );
+    return streamConsignmentDocument(this.storage, request, index, res);
   }
 
   @Post('consignments')
