@@ -11,6 +11,8 @@ import { Paginated } from '../../shared/http/paginated';
 import { ActivitiesService } from '../activity/activities.service';
 import { ActivityType } from '../activity/domain/activity.entity';
 import { Client } from '../crm/domain/client.entity';
+import { Agent } from '../iam/domain/agent.entity';
+import { AgentStatus } from '../iam/domain/role.enum';
 import { PipelinesService } from '../crm/pipelines.service';
 import {
   InterestRole,
@@ -42,11 +44,26 @@ import type { SearchPublicPropertiesDto } from './dto/public-search.dto';
 /** Solo se enseña fuera lo publicado; el resto ni existe para la web. */
 const VISIBLE = [PublicationStatus.ACTIVE, PublicationStatus.OUTSTANDING];
 
+/**
+ * El asesor tal y como puede verlo un visitante: los datos con los que ya
+ * atiende el telefono, y nada mas. Ni rol, ni estado, ni ultimo acceso.
+ */
+export interface PublicAgent {
+  fullName: string;
+  email: string;
+  cellPhone: string | null;
+  hasWhatsapp: boolean;
+  photoUrl: string | null;
+}
+
+export type PublicProperty = Property & { agent: PublicAgent | null };
+
 @Injectable()
 export class PublicService {
   constructor(
     @InjectRepository(Property)
     private readonly properties: Repository<Property>,
+    @InjectRepository(Agent) private readonly agents: Repository<Agent>,
     @InjectRepository(PropertyFamily)
     private readonly families: Repository<PropertyFamily>,
     @InjectRepository(Client) private readonly clients: Repository<Client>,
@@ -115,12 +132,21 @@ export class PublicService {
       });
     if (dto.bedrooms)
       qb.andWhere('property.bedrooms >= :bedrooms', { bedrooms: dto.bedrooms });
+    if (dto.bathrooms)
+      qb.andWhere('property.bathrooms >= :bathrooms', {
+        bathrooms: dto.bathrooms,
+      });
+    if (dto.condition)
+      qb.andWhere('property.condition = :condition', {
+        condition: dto.condition,
+      });
     if (dto.minArea)
       qb.andWhere('property.area >= :minArea', { minArea: dto.minArea });
     if (dto.maxArea)
       qb.andWhere('property.area <= :maxArea', { maxArea: dto.maxArea });
     if (dto.forRent === 'true') qb.andWhere('property.for_rent = true');
     if (dto.forSale === 'true') qb.andWhere('property.for_sale = true');
+    if (dto.forTransfer === 'true') qb.andWhere('property.for_transfer = true');
 
     switch (dto.sort) {
       case 'price_asc':
@@ -155,8 +181,39 @@ export class PublicService {
     return new Paginated(data, total, page, limit);
   }
 
+  /**
+   * Cuántos inmuebles visibles hay de cada tipo. Es lo que el menú de la web
+   * enseña entre paréntesis — Apartamento (423) — y sin esto la web tenía que
+   * sacarlo con una consulta por tipo.
+   */
+  async countsByPropertyType(): Promise<
+    { propertyTypeId: number; total: number; forSale: number }[]
+  > {
+    const rows = await this.properties
+      .createQueryBuilder('property')
+      .select('property.property_type_id', 'propertyTypeId')
+      .addSelect('COUNT(*)', 'total')
+      .addSelect('COUNT(*) FILTER (WHERE property.for_sale)', 'forSale')
+      .where('property.publication_status IN (:...visible)', {
+        visible: VISIBLE,
+      })
+      .andWhere('property.availability = :available', {
+        available: Availability.AVAILABLE,
+      })
+      .andWhere('property.property_type_id IS NOT NULL')
+      .groupBy('property.property_type_id')
+      .getRawMany<{ propertyTypeId: number; total: string; forSale: string }>();
+
+    // `COUNT` vuelve como bigint y el driver lo entrega en texto.
+    return rows.map((row) => ({
+      propertyTypeId: Number(row.propertyTypeId),
+      total: Number(row.total),
+      forSale: Number(row.forSale),
+    }));
+  }
+
   /** Ficha pública por código. El uuid no se expone fuera. */
-  async propertyByCode(code: string): Promise<Property> {
+  async propertyByCode(code: string): Promise<PublicProperty> {
     const property = await this.properties
       .createQueryBuilder('property')
       .leftJoinAndSelect('property.propertyType', 'propertyType')
@@ -179,7 +236,47 @@ export class PublicService {
 
     // Una visita a la ficha pública es la señal de interés más barata que hay.
     await this.properties.increment({ id: property.id }, 'visits', 1);
-    return property;
+
+    return Object.assign(property, {
+      agent: await this.publicAgent(property.assignedAgentId),
+    });
+  }
+
+  /**
+   * La tarjeta de contacto del asesor a cargo.
+   *
+   * No se resuelve con un `leftJoinAndSelect` a proposito: la relacion traeria
+   * la fila entera —rol, estado, ultimo acceso— a una respuesta sin token. Se
+   * pide aparte y se recorta a los cinco campos que un visitante necesita para
+   * llamar. Si el asesor ya no esta activo no se enseña a nadie, y la ficha cae
+   * en el contacto de la agencia.
+   */
+  private async publicAgent(
+    agentId: string | null,
+  ): Promise<PublicAgent | null> {
+    if (!agentId) return null;
+
+    const agent = await this.agents.findOne({
+      where: { id: agentId, status: AgentStatus.ACTIVE },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        cellPhone: true,
+        hasWhatsapp: true,
+        photoUrl: true,
+      },
+    });
+    if (!agent) return null;
+
+    return {
+      fullName: agent.fullName,
+      email: agent.email,
+      cellPhone: agent.cellPhone,
+      hasWhatsapp: agent.hasWhatsapp,
+      photoUrl: agent.photoUrl,
+    };
   }
 
   /** Otras unidades del mismo proyecto: mismo sitio, otra medida. */

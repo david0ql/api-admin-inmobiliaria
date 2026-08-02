@@ -35,7 +35,11 @@ import type { ConsignmentFile } from './domain/consignment-request.entity';
  * Superficie publica: lo que consume la web de presentacion.
  *
  * Todo va sin token y con limite de trafico. Solo se expone lo publicado y
- * nunca datos internos — ni asesor asignado, ni etapa del embudo, ni notas.
+ * nunca datos internos — ni etapa del embudo, ni notas, ni cartera.
+ *
+ * La unica excepcion es la tarjeta de contacto del asesor a cargo en la ficha,
+ * y va recortada a mano a nombre, correo, movil y foto: es informacion que la
+ * agencia ya publica en cada anuncio. Ver `publicAgent` en PublicService.
  */
 @ApiTags('public')
 @Public()
@@ -105,6 +109,29 @@ export class PublicController {
       this.catalog.listFeatures(),
     ]);
     return { cities, propertyTypes, features };
+  }
+
+  @Get('catalogs/zones')
+  @ApiQuery({ name: 'cityId', required: false, type: Number })
+  @ApiOperation({
+    summary: 'Barrios, para el segundo desplegable del buscador',
+    description:
+      'Sin `cityId` devuelve todos, que son varios miles: la web pide los de la ciudad elegida.',
+  })
+  zones(
+    @Query('cityId', new ParseIntPipe({ optional: true })) cityId?: number,
+  ) {
+    return this.catalog.listZones(cityId);
+  }
+
+  @Get('catalogs/counts')
+  @ApiOperation({
+    summary: 'Inmuebles publicados por tipo',
+    description:
+      'Lo que el menu de la web enseña entre parentesis: Apartamento (423).',
+  })
+  counts() {
+    return this.service.countsByPropertyType();
   }
 
   // --- agenda ------------------------------------------------------------

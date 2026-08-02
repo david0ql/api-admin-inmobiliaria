@@ -6,6 +6,7 @@ import { CrmModule } from '../crm/crm.module';
 import { MediaModule } from '../media/media.module';
 import { PropertiesModule } from '../properties/properties.module';
 import { SchedulingModule } from '../scheduling/scheduling.module';
+import { Agent } from '../iam/domain/agent.entity';
 import { ConsignmentRequest } from './domain/consignment-request.entity';
 import { PublicService } from './public.service';
 import { PublicController } from './public.controller';
@@ -19,7 +20,9 @@ import { ConsignmentsController } from './consignments.controller';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ConsignmentRequest]),
+    // `Agent` solo para la tarjeta de contacto de la ficha publica: nombre,
+    // telefono, correo y foto. Ver `publicAgent` en PublicService.
+    TypeOrmModule.forFeature([ConsignmentRequest, Agent]),
     CatalogModule,
     PropertiesModule,
     CrmModule,

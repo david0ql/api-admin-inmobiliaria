@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsBooleanString,
+  IsEnum,
   IsIn,
   IsInt,
   IsNumber,
@@ -11,6 +12,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
+import { PropertyCondition } from '../../properties/domain/property.enums';
 
 export class SearchPublicPropertiesDto {
   @ApiPropertyOptional({
@@ -82,6 +84,19 @@ export class SearchPublicPropertiesDto {
   @Max(20)
   bedrooms?: number;
 
+  @ApiPropertyOptional({ description: 'Mínimo de baños' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(20)
+  bathrooms?: number;
+
+  @ApiPropertyOptional({ enum: PropertyCondition })
+  @IsOptional()
+  @IsEnum(PropertyCondition)
+  condition?: PropertyCondition;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsBooleanString()
@@ -91,6 +106,11 @@ export class SearchPublicPropertiesDto {
   @IsOptional()
   @IsBooleanString()
   forRent?: string;
+
+  @ApiPropertyOptional({ description: 'Permuta' })
+  @IsOptional()
+  @IsBooleanString()
+  forTransfer?: string;
 
   @ApiPropertyOptional({
     enum: ['recent', 'price_asc', 'price_desc', 'area_desc'],
