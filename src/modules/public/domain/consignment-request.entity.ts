@@ -39,9 +39,26 @@ export enum ViewOrientation {
   WEST = 'WEST',
 }
 
+/**
+ * Los cinco documentos que la agencia pide para consignar. Son categorias, no
+ * ficheros sueltos: un certificado de tradicion y un recibo de predial no se
+ * revisan igual ni caducan igual, y sin la etiqueta el asesor tiene que abrir
+ * los cinco PDF para saber cual es cual.
+ */
+export enum ConsignmentDocumentType {
+  /** No mayor a 30 dias. */
+  TRADITION = 'TRADITION',
+  DEED = 'DEED',
+  OWNER_ID = 'OWNER_ID',
+  PROPERTY_TAX = 'PROPERTY_TAX',
+  MAINTENANCE_BILL = 'MAINTENANCE_BILL',
+}
+
 /** Documento o foto adjunta a la solicitud. */
 export interface ConsignmentFile {
   kind: 'DOCUMENT' | 'PHOTO';
+  /** Solo en los documentos: cual de los cinco es. */
+  docType?: ConsignmentDocumentType;
   storageKey: string;
   url: string;
   originalName: string;

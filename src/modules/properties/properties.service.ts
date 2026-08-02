@@ -315,6 +315,7 @@ export class PropertiesService {
               propertyId: id,
               storageKey: stored.key,
               url: stored.url,
+              urlMedium: stored.urlMedium,
               urlLarge: stored.urlLarge,
               urlOriginal: stored.urlOriginal,
               checksum: stored.checksum,

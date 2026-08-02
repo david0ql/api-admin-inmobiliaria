@@ -188,9 +188,18 @@ export class CreateConsignmentDto {
     description: 'Zona social: ids del catalogo',
   })
   @IsOptional()
+  /*
+   * En `multipart/form-data` no hay listas: un campo repetido llega como array,
+   * pero uno solo llega como cadena. Sin esto, marcar una unica casilla de la
+   * zona social tumbaba el envio entero con "amenityIds must be an array".
+   */
+  @Transform(({ value }) => {
+    if (value === undefined || value === '') return undefined;
+    const list = Array.isArray(value) ? value : [value];
+    return list.map(Number);
+  })
   @IsArray()
   @ArrayMaxSize(60)
-  @Type(() => Number)
   @IsInt({ each: true })
   amenityIds?: number[];
 

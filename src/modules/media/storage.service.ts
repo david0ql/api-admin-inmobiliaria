@@ -11,6 +11,7 @@ export interface StoredImage {
   /** Ruta relativa dentro de `uploads/`; es lo que se guarda en la base. */
   key: string;
   url: string;
+  urlMedium: string;
   urlLarge: string;
   urlOriginal: string;
   width: number;
@@ -36,8 +37,16 @@ const ACCEPTED = new Set([
  */
 const MAX_INPUT_PIXELS = 100_000_000;
 
-/** Anchos derivados: listado, ficha y archivo. */
+/** Anchos derivados: listado, tarjeta en movil, ficha y archivo. */
 const THUMB_WIDTH = 560;
+/**
+ * El tamano intermedio existe por los moviles. Una tarjeta ocupa el ancho de
+ * pantalla — 412 px logicos — pero a densidad 1,75 el navegador necesita 721 px
+ * reales, y al no llegarle el thumb saltaba a la de 1600 px: 405 kB por
+ * tarjeta en lugar de 43. Con este paso intermedio baja a ~120 kB sin que se
+ * note en pantalla.
+ */
+const MEDIUM_WIDTH = 1024;
 const LARGE_WIDTH = 1600;
 /**
  * El archivo se topa en 2560 px. Las camaras suben fotos de 4032 px que nadie
@@ -135,6 +144,7 @@ export class StorageService {
     const height = meta.height ?? 0;
 
     const thumbKey = `${scope}/${id}-t.webp`;
+    const mediumKey = `${scope}/${id}-m.webp`;
     const largeKey = `${scope}/${id}-l.webp`;
     const originalKey = `${scope}/${id}-o.webp`;
 
@@ -153,13 +163,19 @@ export class StorageService {
       .webp({ quality: 82, effort: 3 })
       .toBuffer();
 
-    const thumb = await sharp(large)
+    const medium = await sharp(large)
+      .resize({ width: MEDIUM_WIDTH, withoutEnlargement: true })
+      .webp({ quality: 80, effort: 3 })
+      .toBuffer();
+
+    const thumb = await sharp(medium)
       .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
       .webp({ quality: 78, effort: 3 })
       .toBuffer();
 
     await Promise.all([
       writeFile(join(this.root, thumbKey), thumb),
+      writeFile(join(this.root, mediumKey), medium),
       writeFile(join(this.root, largeKey), large),
       writeFile(join(this.root, originalKey), archive),
     ]);
@@ -167,11 +183,12 @@ export class StorageService {
     return {
       key: originalKey,
       url: this.publicUrl(thumbKey),
+      urlMedium: this.publicUrl(mediumKey),
       urlLarge: this.publicUrl(largeKey),
       urlOriginal: this.publicUrl(originalKey),
       width,
       height,
-      bytes: thumb.length + large.length + archive.length,
+      bytes: thumb.length + medium.length + large.length + archive.length,
       mimeType: 'image/webp',
       checksum,
     };
@@ -272,7 +289,7 @@ export class StorageService {
     if (!key) return;
     const base = key.replace(/-o\.webp$/, '');
     await Promise.all(
-      ['-t.webp', '-l.webp', '-o.webp'].map((suffix) =>
+      ['-t.webp', '-m.webp', '-l.webp', '-o.webp'].map((suffix) =>
         rm(join(this.root, `${base}${suffix}`), { force: true }),
       ),
     );

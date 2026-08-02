@@ -43,6 +43,10 @@ export class PropertyImage extends BaseEntity {
   @Column({ type: 'text' })
   url: string;
 
+  @ApiProperty({ description: 'Version para la tarjeta en movil (1024 px)' })
+  @Column({ type: 'text', nullable: true })
+  urlMedium: string | null;
+
   @ApiProperty({ description: 'Version para la ficha (1600 px)' })
   @Column({ type: 'text' })
   urlLarge: string;

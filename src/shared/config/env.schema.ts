@@ -61,6 +61,11 @@ export const envSchema = z.object({
   /** Sin secreto la verificacion se salta y se avisa por log. */
   CAPTCHA_SECRET: z.string().optional(),
 
+  /** Dominio publico: lo usan el sitemap y las URL canonicas. */
+  PUBLIC_SITE_URL: z
+    .string()
+    .default('https://web-clientes-inmobiliaria.nordikhat.com'),
+
   /** Antelacion minima para pedir una visita desde la web, en horas. */
   PUBLIC_BOOKING_LEAD_HOURS: z.coerce
     .number()

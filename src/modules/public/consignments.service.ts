@@ -231,6 +231,7 @@ export class ConsignmentsService {
               propertyId: property.id,
               storageKey: photo.storageKey,
               url: photo.url,
+              urlMedium: photo.url.replace(/-t\.webp$/, '-m.webp'),
               urlLarge: photo.url.replace(/-t\.webp$/, '-l.webp'),
               urlOriginal: photo.url.replace(/-t\.webp$/, '-o.webp'),
               sourceUrl: null,

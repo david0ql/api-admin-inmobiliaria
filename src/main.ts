@@ -18,7 +18,11 @@ async function bootstrap() {
     credentials: true,
   });
 
-  app.setGlobalPrefix(config.apiPrefix);
+  // `robots.txt` y `sitemap.xml` tienen que vivir en la raiz del dominio: un
+  // buscador no los busca bajo /api/v1.
+  app.setGlobalPrefix(config.apiPrefix, {
+    exclude: ['robots.txt', 'sitemap.xml'],
+  });
 
   // Las fotos del inventario se sirven desde el propio servidor. Se cachean un
   // ano porque el nombre del fichero lleva un uuid: si cambia la imagen, cambia

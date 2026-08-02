@@ -28,9 +28,26 @@ import { StorageService } from '../media/storage.service';
 import { PublicService } from './public.service';
 import { CaptchaService } from './captcha.service';
 import { BookVisitDto, CreateConsignmentDto } from './dto/consignment.dto';
+import { CreateCreditRequestDto } from './dto/credit.dto';
+import { CreditRequestsService } from './credit-requests.service';
 import { SearchPublicProjectsDto } from './dto/public-projects.dto';
 import { SearchPublicPropertiesDto } from './dto/public-search.dto';
-import type { ConsignmentFile } from './domain/consignment-request.entity';
+import {
+  ConsignmentDocumentType,
+  type ConsignmentFile,
+} from './domain/consignment-request.entity';
+
+/** Los cinco documentos del formulario, cada uno en su propio campo. */
+const DOCUMENT_FIELDS = [
+  { name: 'docTradition', docType: ConsignmentDocumentType.TRADITION },
+  { name: 'docDeed', docType: ConsignmentDocumentType.DEED },
+  { name: 'docId', docType: ConsignmentDocumentType.OWNER_ID },
+  { name: 'docTax', docType: ConsignmentDocumentType.PROPERTY_TAX },
+  {
+    name: 'docMaintenance',
+    docType: ConsignmentDocumentType.MAINTENANCE_BILL,
+  },
+] as const;
 
 /**
  * Superficie publica: lo que consume la web de presentacion.
@@ -52,6 +69,7 @@ export class PublicController {
     private readonly captcha: CaptchaService,
     private readonly catalog: CatalogService,
     private readonly storage: StorageService,
+    private readonly credits: CreditRequestsService,
   ) {}
 
   // --- inmuebles ---------------------------------------------------------
@@ -171,6 +189,11 @@ export class PublicController {
   @Throttle({ default: { limit: 3, ttl: 300_000 } })
   @UseInterceptors(
     FileFieldsInterceptor([
+      // Un campo por documento y no un `documents[]` suelto: asi la categoria
+      // la pone el formulario, que es quien la sabe, y no hay que adivinarla
+      // luego por el nombre del fichero.
+      ...DOCUMENT_FIELDS.map((field) => ({ name: field.name, maxCount: 1 })),
+      // Se conserva el campo antiguo para no romper a quien ya llame asi.
       { name: 'documents', maxCount: 5 },
       { name: 'photos', maxCount: 20 },
     ]),
@@ -178,7 +201,8 @@ export class PublicController {
   @ApiConsumes('multipart/form-data', 'application/json')
   @ApiBody({
     description:
-      'Datos del formulario mas `documents` (hasta 5 PDF) y `photos`. ' +
+      'Datos del formulario, `photos`, y un PDF por categoria en ' +
+      '`docTradition`, `docDeed`, `docId`, `docTax` y `docMaintenance`. ' +
       'Si no se envian ficheros vale JSON plano.',
     type: CreateConsignmentDto,
   })
@@ -187,10 +211,7 @@ export class PublicController {
     @Body() dto: CreateConsignmentDto,
     @Req() req: Request,
     @UploadedFiles()
-    uploaded?: {
-      documents?: Express.Multer.File[];
-      photos?: Express.Multer.File[];
-    },
+    uploaded?: Record<string, Express.Multer.File[] | undefined>,
   ) {
     await this.captcha.verify(dto.captchaToken, ip(req));
     const request = await this.service.createConsignment(dto, ip(req));
@@ -216,6 +237,30 @@ export class PublicController {
         });
       }
     }
+    for (const field of DOCUMENT_FIELDS) {
+      for (const document of uploaded?.[field.name] ?? []) {
+        const stored = await this.storage
+          .saveRaw(
+            document.buffer,
+            `consignments/${request.id}`,
+            document.originalname,
+          )
+          .catch(() => null);
+        if (stored) {
+          files.push({
+            kind: 'DOCUMENT',
+            docType: field.docType,
+            storageKey: stored.key,
+            url: stored.url,
+            originalName: document.originalname,
+            bytes: stored.bytes,
+          });
+        }
+      }
+    }
+
+    // Los que lleguen sin categoria se guardan igual: mejor un PDF sin
+    // etiquetar que perderlo.
     for (const document of uploaded?.documents ?? []) {
       const stored = await this.storage
         .saveRaw(
@@ -242,6 +287,45 @@ export class PublicController {
       message:
         'Recibimos tu solicitud. Un asesor la revisara y te contactara para coordinar la visita.',
       files: files.length,
+    };
+  }
+
+  // --- creditos ----------------------------------------------------------
+
+  @Post('credit-requests')
+  // Mismo limite que consignaciones: son datos personales sensibles y no hay
+  // motivo legitimo para enviar cuatro consultas en cinco minutos.
+  @Throttle({ default: { limit: 3, ttl: 300_000 } })
+  @ApiOperation({
+    summary: 'Consulta de viabilidad de credito hipotecario',
+    description:
+      'Es un lead, no una radicacion: no consulta centrales de riesgo ni ' +
+      'aprueba nada. Deja el caso listo para que un asesor lo trabaje.',
+  })
+  async createCreditRequest(
+    @Body() dto: CreateCreditRequestDto,
+    @Req() req: Request,
+  ) {
+    await this.captcha.verify(dto.captchaToken, ip(req));
+    const request = await this.credits.create(dto, ip(req));
+    return {
+      reference: request.reference,
+      message:
+        'Recibimos tu consulta. Un asesor revisara tu caso y te contactara para explicarte las opciones.',
+    };
+  }
+
+  @Get('credit-requests/:reference')
+  @ApiOperation({ summary: 'Estado de una consulta, para el solicitante' })
+  async creditRequest(@Param('reference') reference: string) {
+    const request = await this.credits.findByReference(reference);
+    // Nada de la gestion interna: ni entidad, ni asesor, ni notas.
+    return {
+      reference: request.reference,
+      status: request.status,
+      amount: request.amount,
+      termYears: request.termYears,
+      createdAt: request.createdAt,
     };
   }
 
