@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CatalogModule } from '../catalog/catalog.module';
+import { SchedulingModule } from '../scheduling/scheduling.module';
 import { PublicModule } from '../public/public.module';
 import { AssistantController } from './assistant.controller';
 import { AssistantService } from './assistant.service';
@@ -16,7 +17,7 @@ import { OpenAiProvider } from './openai-provider';
  * al navegador salvo por el endpoint de chat, que va con limite de trafico.
  */
 @Module({
-  imports: [PublicModule, CatalogModule],
+  imports: [PublicModule, CatalogModule, SchedulingModule],
   controllers: [AssistantController],
   providers: [AssistantService, AssistantTools, OpenAiProvider],
 })
