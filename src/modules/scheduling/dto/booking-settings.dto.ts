@@ -82,6 +82,14 @@ export class UpdateBookingSettingsDto {
   @Max(6)
   suggestedSlots?: number;
 
+  @ApiPropertyOptional({ description: 'Cuántos inmuebles muestra el chat.' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  suggestedProperties?: number;
+
   @ApiPropertyOptional({ description: 'Duración de cada visita, en minutos.' })
   @IsOptional()
   @Type(() => Number)

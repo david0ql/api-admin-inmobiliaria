@@ -96,8 +96,6 @@ const CONDITION_ES: Record<string, string> = {
   UNDER_CONSTRUCTION: 'En construcción',
 };
 
-/** Cuántos inmuebles y cuántas fotos como mucho entran en una respuesta. */
-const MAX_RESULTS = 8;
 const MAX_IMAGES = 12;
 
 /**
@@ -235,7 +233,7 @@ export class AssistantTools {
       // acabaron, en vez de a que no es lo suyo.
       forSale: 'true',
       sort: sortOf(str(args.orden)),
-      limit: MAX_RESULTS,
+      limit: (await this.bookingSettings.get()).suggestedProperties,
     });
 
     const items = page.data.map((p) => cardView(p));
@@ -356,16 +354,33 @@ export class AssistantTools {
       .catch(() => null);
     if (!days) return notFound(code);
 
-    const open = days
+    const settings = await this.bookingSettings.get();
+
+    /*
+      Las primeras horas libres y nada mas.
+
+      Se enseñaban diez dias con ocho franjas cada uno: ochenta botones. Eso no
+      es ayudar a elegir, es pasarle a alguien la agenda de la semana y pedirle
+      que la estudie — y mientras la estudia, otra inmobiliaria le enseña el
+      mismo inmueble. Con dos o tres horas concretas se elige en un segundo.
+    */
+    const proximos = days
       .filter((d) => d.available && d.slots.length)
-      .slice(0, 10)
-      .map((d) => ({
-        date: d.date,
-        slots: d.slots.slice(0, 8).map((s) => ({
+      .flatMap((d) =>
+        d.slots.map((s) => ({
+          date: d.date,
           startsAt: s.startsAt,
           endsAt: s.endsAt,
         })),
-      }));
+      )
+      .slice(0, settings.suggestedSlots);
+
+    const open = [...new Set(proximos.map((s) => s.date))].map((date) => ({
+      date,
+      slots: proximos
+        .filter((s) => s.date === date)
+        .map((s) => ({ startsAt: s.startsAt, endsAt: s.endsAt })),
+    }));
 
     /*
       Las primeras horas libres, en orden.
@@ -376,10 +391,7 @@ export class AssistantTools {
       proponerle dos horas concretas —"¿te viene manana a las 2 o a las 3?"— le
       invita a elegir.
     */
-    const settings = await this.bookingSettings.get();
-    const proximas = open
-      .flatMap((d) => d.slots.map((s) => s.startsAt))
-      .slice(0, settings.suggestedSlots);
+    const proximas = proximos.map((s) => s.startsAt);
 
     return {
       forModel: {

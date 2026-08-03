@@ -57,7 +57,8 @@ export class BookingSettingsService {
         uniformLeadHours: 24,
         leadDaysByAvailability: DEFAULT_LEAD_BY_AVAILABILITY,
         leadDaysByOperation: DEFAULT_LEAD_BY_OPERATION,
-        suggestedSlots: 3,
+        suggestedSlots: 2,
+        suggestedProperties: 3,
         slotMinutes: 60,
       }),
     );

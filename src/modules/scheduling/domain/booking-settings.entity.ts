@@ -112,8 +112,19 @@ export class BookingSettings extends BaseEntity {
    * y dejar que el visitante decida cuándo le apetece.
    */
   @ApiProperty({ description: 'Cuántas horas próximas propone el asistente.' })
-  @Column({ type: 'int', default: 3 })
+  @Column({ type: 'int', default: 2 })
   suggestedSlots: number;
+
+  /**
+   * Cuántos inmuebles enseña el chat de una búsqueda.
+   *
+   * Ocho es un catálogo y se lee como un catálogo: el visitante los repasa, se
+   * lo piensa y se va. Tres se leen y se eligen — es el número que pidió la
+   * agencia después de ver que ocho no llevaban a ninguna cita.
+   */
+  @ApiProperty({ description: 'Cuántos inmuebles muestra el chat al buscar.' })
+  @Column({ type: 'int', default: 3 })
+  suggestedProperties: number;
 
   /** Duración de cada visita, en minutos. */
   @ApiProperty()

@@ -161,27 +161,36 @@ export class AvailabilityService {
         }
       }
 
-      const list: Slot[] = [...slots.entries()]
+      /*
+        Si el inmueble tiene asesor asignado, las horas son LAS SUYAS.
+
+        Antes esto solo reordenaba la lista por cuantos asesores quedaban
+        libres —un criterio que ni siquiera miraba al asignado—, asi que la web
+        ofrecia huecos de cualquiera del equipo y luego la cita se la llevaba
+        quien tuviera sitio. Quien conoce la unidad es su asesor, y es con quien
+        el visitante espera ir.
+
+        Si ese asesor no tiene ni un hueco en todo el rango se cae al equipo
+        entero: mas vale una visita con otro que un "no hay horarios".
+      */
+      const propias = propertyAgentId
+        ? [...slots.entries()].filter(([, agents]) =>
+            agents.has(propertyAgentId),
+          )
+        : [];
+      const elegidas = propias.length ? propias : [...slots.entries()];
+
+      const list: Slot[] = elegidas
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([startsAt, agents]) => ({
           startsAt,
           endsAt: new Date(
-            new Date(startsAt).getTime() + SLOT_MINUTES * 60_000,
+            new Date(startsAt).getTime() + oficina.slotMinutes * 60_000,
           ).toISOString(),
           agents: agents.size,
         }));
 
       days.push({ date, weekday, available: list.length > 0, slots: list });
-    }
-
-    // Si el inmueble ya tiene asesor, sus huecos se marcan primero: es quien
-    // conoce la unidad.
-    if (propertyAgentId) {
-      for (const day of days) {
-        day.slots.sort(
-          (a, b) => b.agents - a.agents || a.startsAt.localeCompare(b.startsAt),
-        );
-      }
     }
 
     return days;
