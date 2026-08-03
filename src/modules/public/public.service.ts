@@ -36,6 +36,7 @@ import {
   AvailabilityService,
   type DayAvailability,
 } from '../scheduling/availability.service';
+import { BookingSettingsService } from '../scheduling/booking-settings.service';
 import {
   ConsignmentRequest,
   ConsignmentStatus,
@@ -88,6 +89,7 @@ export class PublicService {
     private readonly consignments: Repository<ConsignmentRequest>,
     private readonly familiesService: FamiliesService,
     private readonly availability: AvailabilityService,
+    private readonly bookingSettings: BookingSettingsService,
     private readonly pipelines: PipelinesService,
     private readonly activities: ActivitiesService,
     private readonly config: AppConfigService,
@@ -393,13 +395,25 @@ export class PublicService {
     const property = await this.properties.findOne({
       where: { code },
       loadEagerRelations: false,
-      select: { id: true, assignedAgentId: true },
+      select: {
+        id: true,
+        assignedAgentId: true,
+        availability: true,
+        forSale: true,
+        forRent: true,
+      },
     });
     if (!property)
       throw new NotFoundException(`Inmueble ${code} no encontrado`);
 
+    // La antelacion depende del inmueble, no es una constante del sitio: uno
+    // reservado o retirado necesita margen para hablar con el propietario
+    // antes de enseñarlo; uno disponible se puede ver mañana. Lo decide la
+    // agencia desde el panel.
+    const minLeadHours = await this.bookingSettings.leadHoursFor(property);
+
     return this.availability.calendar(from, to, {
-      minLeadHours: this.config.publicBookingLeadHours,
+      minLeadHours,
       propertyAgentId: property.assignedAgentId ?? undefined,
     });
   }
@@ -438,14 +452,16 @@ export class PublicService {
     if (Number.isNaN(inicio.getTime()))
       throw new BadRequestException('Fecha invalida');
 
-    const minStart = new Date(
-      Date.now() + this.config.publicBookingLeadHours * 3600 * 1000,
-    );
-    if (inicio < minStart) {
-      throw new BadRequestException(
-        `Las visitas se piden con al menos ${this.config.publicBookingLeadHours} horas de antelacion`,
-      );
-    }
+    const property = await this.properties.findOne({
+      where: { id: appointment.propertyId ?? undefined },
+      loadEagerRelations: false,
+      select: { id: true, availability: true, forSale: true, forRent: true },
+    });
+    const leadHours = property
+      ? await this.bookingSettings.leadHoursFor(property)
+      : await this.bookingSettings.defaultLeadHours();
+    const minStart = new Date(Date.now() + leadHours * 3600 * 1000);
+    if (inicio < minStart) throw new BadRequestException(tooSoon(leadHours));
 
     // El asesor asignado tiene que seguir libre a la hora nueva; si no, no se
     // mueve nada y se le dice que elija otra.
@@ -512,14 +528,11 @@ export class PublicService {
     if (Number.isNaN(startsAt.getTime()))
       throw new BadRequestException('Fecha invalida');
 
-    const minStart = new Date(
-      Date.now() + this.config.publicBookingLeadHours * 3600 * 1000,
-    );
-    if (startsAt < minStart) {
-      throw new BadRequestException(
-        `Las visitas se piden con al menos ${this.config.publicBookingLeadHours} horas de antelacion`,
-      );
-    }
+    // La misma antelacion con la que se ofrecieron las horas. Si aqui se usara
+    // otra, la web enseñaria franjas que luego se rechazan.
+    const leadHours = await this.bookingSettings.leadHoursFor(property);
+    const minStart = new Date(Date.now() + leadHours * 3600 * 1000);
+    if (startsAt < minStart) throw new BadRequestException(tooSoon(leadHours));
 
     const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
     const agentId = await this.availability.pickAgentFor(
@@ -706,9 +719,9 @@ export class PublicService {
   }
 
   /** Disponibilidad del equipo sin atarla a un inmueble concreto. */
-  teamAvailability(from: string, to: string) {
+  async teamAvailability(from: string, to: string) {
     return this.availability.calendar(from, to, {
-      minLeadHours: this.config.publicBookingLeadHours,
+      minLeadHours: await this.bookingSettings.defaultLeadHours(),
     });
   }
 
@@ -738,4 +751,11 @@ export class PublicService {
       .getRawOne<{ max: number | null }>();
     return `SC-${String((row?.max ?? 0) + 1).padStart(6, '0')}`;
   }
+}
+
+/** El mismo aviso en todos los sitios, dicho como lo diria una persona. */
+function tooSoon(leadHours: number): string {
+  if (leadHours <= 24) return 'Las visitas se piden con un dia de antelacion.';
+  const dias = Math.round(leadHours / 24);
+  return `Las visitas de este inmueble se piden con ${dias} dias de antelacion.`;
 }

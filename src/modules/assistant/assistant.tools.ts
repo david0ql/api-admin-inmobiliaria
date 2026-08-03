@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../../shared/config/app-config.service';
 import { CatalogService } from '../catalog/catalog.service';
 import { PublicService } from '../public/public.service';
+import { BookingSettingsService } from '../scheduling/booking-settings.service';
 import type { Property } from '../properties/domain/property.entity';
 import type { PublicProperty } from '../public/public.service';
 import type { ToolSpec } from './chat-provider';
@@ -115,6 +116,7 @@ export class AssistantTools {
     private readonly properties: PublicService,
     private readonly catalog: CatalogService,
     private readonly config: AppConfigService,
+    private readonly bookingSettings: BookingSettingsService,
   ) {}
 
   /** Las herramientas que se ofrecen al modelo, segun donde este el visitante. */
@@ -365,17 +367,31 @@ export class AssistantTools {
         })),
       }));
 
+    /*
+      Las primeras horas libres, en orden.
+
+      Es lo que pidio la agencia y tiene su razon: el mismo inmueble lo publican
+      varias inmobiliarias, y la visita se la lleva quien la concreta antes.
+      Soltarle al visitante un calendario de dos semanas le invita a pensarselo;
+      proponerle dos horas concretas —"¿te viene manana a las 2 o a las 3?"— le
+      invita a elegir.
+    */
+    const settings = await this.bookingSettings.get();
+    const proximas = open
+      .flatMap((d) => d.slots.map((s) => s.startsAt))
+      .slice(0, settings.suggestedSlots);
+
     return {
       forModel: {
         codigo: code,
         rango: { desde: from, hasta: to },
-        antelacionMinimaHoras: this.config.publicBookingLeadHours,
+        proponerEstas: proximas,
         diasConCupo: open.map((d) => ({
           fecha: d.date,
           horas: d.slots.map((s) => s.startsAt),
         })),
         nota: open.length
-          ? 'Confirma con el visitante día y hora exactos, pídele nombre y teléfono, y usa agendar_visita.'
+          ? 'PROPÓN las de `proponerEstas`, que son las más próximas, en una sola frase y con hora concreta ("¿te viene mañana a las 2 o a las 3?"). No enumeres el calendario entero: el visitante ya lo ve en la tarjeta. Cuando elija, pídele nombre y teléfono y usa agendar_visita con el ISO exacto.'
           : 'No hay cupos en ese rango. Ofrece otro rango o dejar los datos para que un asesor lo llame.',
       },
       card: open.length ? { type: 'slots', code, days: open } : undefined,

@@ -5,6 +5,11 @@ import { Agent } from '../iam/domain/agent.entity';
 import { AgentShift } from '../iam/domain/agent-shift.entity';
 import { AgentStatus, Role } from '../iam/domain/role.enum';
 import { Appointment, AppointmentStatus } from './domain/appointment.entity';
+import { BookingSettingsService } from './booking-settings.service';
+import {
+  BookingSettings,
+  DEFAULT_WORKDAYS,
+} from './domain/booking-settings.entity';
 
 export interface Slot {
   /** Instante de inicio en ISO/UTC. */
@@ -43,6 +48,7 @@ export class AvailabilityService {
     @InjectRepository(Agent) private readonly agents: Repository<Agent>,
     @InjectRepository(AgentShift)
     private readonly shifts: Repository<AgentShift>,
+    private readonly settings: BookingSettingsService,
     @InjectRepository(Appointment)
     private readonly appointments: Repository<Appointment>,
   ) {}
@@ -89,12 +95,14 @@ export class AvailabilityService {
     });
 
     // Sin cuadro de turnos no se puede afirmar que alguien esté libre: se
-    // asume la jornada estándar de la oficina en lugar de devolver "nada
-    // disponible", que dejaría el formulario público inservible.
+    // asume el horario de la oficina en lugar de devolver "nada disponible",
+    // que dejaría el formulario público inservible. Ese horario ya no está
+    // escrito aquí: lo pone la agencia desde el panel.
+    const oficina = await this.settings.get();
     const byAgent = new Map<string, AgentShift[]>();
     for (const agentId of agentIds) {
       const own = shifts.filter((shift) => shift.agentId === agentId);
-      byAgent.set(agentId, own.length ? own : DEFAULT_SHIFTS(agentId));
+      byAgent.set(agentId, own.length ? own : officeShifts(agentId, oficina));
     }
 
     const booked = await this.appointments
@@ -130,7 +138,12 @@ export class AvailabilityService {
           if (shift.validFrom && shift.validFrom > date) continue;
           if (shift.validUntil && shift.validUntil < date) continue;
 
-          for (const slot of gridOf(date, shift.startTime, shift.endTime)) {
+          for (const slot of gridOf(
+            date,
+            shift.startTime,
+            shift.endTime,
+            oficina.slotMinutes,
+          )) {
             if (slot.start < notBefore) continue;
             const busy = booked.some(
               (appointment) =>
@@ -194,7 +207,9 @@ export class AvailabilityService {
 
     const { date, weekday, time } = enColombia(startsAt);
     const shifts = await this.shifts.find({ where: { agentId } });
-    const own = shifts.length ? shifts : DEFAULT_SHIFTS(agentId);
+    const own = shifts.length
+      ? shifts
+      : officeShifts(agentId, await this.settings.get());
     const cubierto = own.some(
       (shift) =>
         shift.weekday === weekday &&
@@ -224,6 +239,7 @@ export class AvailabilityService {
     preferredId?: string | null,
   ): Promise<string | null> {
     const { date, weekday, time } = enColombia(startsAt);
+    const oficina = await this.settings.get();
 
     const team = await this.agents.find({
       where: { status: AgentStatus.ACTIVE },
@@ -243,7 +259,7 @@ export class AvailabilityService {
       // Quien no tiene cuadro definido se rige por la jornada estándar.
       const own = hasAnyShift.has(agentId)
         ? shifts.filter((shift) => shift.agentId === agentId)
-        : DEFAULT_SHIFTS(agentId);
+        : officeShifts(agentId, oficina);
       return own.some(
         (shift) =>
           shift.weekday === weekday &&
@@ -293,33 +309,45 @@ export class AvailabilityService {
 }
 
 /** Lunes a viernes 8–18 y sábado 9–13, la jornada habitual de la oficina. */
-function DEFAULT_SHIFTS(agentId: string): AgentShift[] {
-  const make = (weekday: number, startTime: string, endTime: string) =>
-    ({
-      agentId,
-      weekday,
-      startTime,
-      endTime,
-      validFrom: null,
-      validUntil: null,
-    }) as AgentShift;
-  return [
-    make(1, '08:00:00', '18:00:00'),
-    make(2, '08:00:00', '18:00:00'),
-    make(3, '08:00:00', '18:00:00'),
-    make(4, '08:00:00', '18:00:00'),
-    make(5, '08:00:00', '18:00:00'),
-    make(6, '09:00:00', '13:00:00'),
-  ];
+/**
+ * El horario de la oficina, como si fuera el cuadro de turnos de un asesor.
+ *
+ * Estaba escrito aqui —lunes a viernes de 8 a 18, sabado de 9 a 13— y cambiarlo
+ * pedia un despliegue. Ahora lo pone la agencia desde el panel y esto solo lo
+ * traduce a la forma que el resto del calculo ya entiende.
+ */
+function officeShifts(
+  agentId: string,
+  settings: BookingSettings,
+): AgentShift[] {
+  const dias = settings.workdays?.length ? settings.workdays : DEFAULT_WORKDAYS;
+  return dias
+    .filter((dia) => dia.open)
+    .map(
+      (dia) =>
+        ({
+          agentId,
+          weekday: dia.weekday,
+          startTime: `${dia.from}:00`,
+          endTime: `${dia.to}:00`,
+          validFrom: null,
+          validUntil: null,
+        }) as AgentShift,
+    );
 }
 
-function gridOf(date: string, startTime: string, endTime: string) {
+function gridOf(
+  date: string,
+  startTime: string,
+  endTime: string,
+  slotMinutes: number = SLOT_MINUTES,
+) {
   const slots: { start: Date; end: Date }[] = [];
   let cursor = new Date(`${date}T${startTime.slice(0, 8)}${COLOMBIA}`);
   const limit = new Date(`${date}T${endTime.slice(0, 8)}${COLOMBIA}`);
 
   while (cursor.getTime() + SLOT_MINUTES * 60_000 <= limit.getTime()) {
-    const end = new Date(cursor.getTime() + SLOT_MINUTES * 60_000);
+    const end = new Date(cursor.getTime() + slotMinutes * 60_000);
     slots.push({ start: new Date(cursor), end });
     cursor = end;
   }
