@@ -250,9 +250,9 @@ function systemPrompt(
     ...(vistos
       ? [
           '',
-          'YA MOSTRADOS en esta conversación (datos reales de ahora mismo, releídos de la base):',
+          'YA MOSTRADOS en esta conversación (datos reales de ahora mismo, releídos de la base y ORDENADOS DE MÁS BARATO A MÁS CARO):',
           vistos,
-          'Para comparar precios, decir cuál es el más barato o recordar cuántas alcobas tenía uno, usa ESTA lista, no lo que escribiste antes. Si te piden algo que no está aquí, busca de nuevo.',
+          'Para comparar precios, decir cuál es el más barato o recordar cuántas alcobas tenía uno, usa ESTA lista, no lo que escribiste antes. El más barato es el PRIMERO de la lista: no lo deduzcas, léelo. Si te piden algo que no está aquí, busca de nuevo.',
         ]
       : []),
     '',
