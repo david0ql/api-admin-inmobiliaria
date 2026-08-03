@@ -3,13 +3,24 @@ import { Column, Entity } from 'typeorm';
 import { BaseEntity } from '../../../shared/database/base.entity';
 import { Availability } from '../../properties/domain/property.enums';
 
-/** Un día de la semana en el horario de la oficina. */
+/** Un tramo de atención: `08:00`–`12:00`. */
+export interface TimeRange {
+  from: string;
+  to: string;
+}
+
+/**
+ * Un día de la semana en el horario de la oficina.
+ *
+ * `ranges` y no un `from`/`to` sueltos porque la jornada tiene pausa de
+ * mediodía: de 8 a 12 y de 2 a 6. Con un solo tramo, o se dejaba abierto el
+ * almuerzo —y la web ofrecía visitas a la una— o se perdía media tarde.
+ */
 export interface WorkdayHours {
   /** 0 domingo … 6 sábado, como `Date.getDay()`. */
   weekday: number;
-  /** `HH:MM`. Se ignora si `open` es falso. */
-  from: string;
-  to: string;
+  /** Se ignoran si `open` es falso. */
+  ranges: TimeRange[];
   /** Si se atiende ese día. */
   open: boolean;
 }
@@ -37,14 +48,21 @@ export interface LeadByOperation {
   rent: number;
 }
 
+/** El horario real de la agencia: L-V 8-12 y 14-18, sábado 8-12. */
+const MANANA_Y_TARDE: TimeRange[] = [
+  { from: '08:00', to: '12:00' },
+  { from: '14:00', to: '18:00' },
+];
+const SOLO_MANANA: TimeRange[] = [{ from: '08:00', to: '12:00' }];
+
 export const DEFAULT_WORKDAYS: WorkdayHours[] = [
-  { weekday: 0, from: '09:00', to: '13:00', open: false },
-  { weekday: 1, from: '08:00', to: '18:00', open: true },
-  { weekday: 2, from: '08:00', to: '18:00', open: true },
-  { weekday: 3, from: '08:00', to: '18:00', open: true },
-  { weekday: 4, from: '08:00', to: '18:00', open: true },
-  { weekday: 5, from: '08:00', to: '18:00', open: true },
-  { weekday: 6, from: '09:00', to: '13:00', open: true },
+  { weekday: 0, ranges: SOLO_MANANA, open: false },
+  { weekday: 1, ranges: MANANA_Y_TARDE, open: true },
+  { weekday: 2, ranges: MANANA_Y_TARDE, open: true },
+  { weekday: 3, ranges: MANANA_Y_TARDE, open: true },
+  { weekday: 4, ranges: MANANA_Y_TARDE, open: true },
+  { weekday: 5, ranges: MANANA_Y_TARDE, open: true },
+  { weekday: 6, ranges: SOLO_MANANA, open: true },
 ];
 
 export const DEFAULT_LEAD_BY_AVAILABILITY: LeadByAvailability = {

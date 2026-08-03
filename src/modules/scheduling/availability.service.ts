@@ -330,18 +330,22 @@ function officeShifts(
   settings: BookingSettings,
 ): AgentShift[] {
   const dias = settings.workdays?.length ? settings.workdays : DEFAULT_WORKDAYS;
+  // Un turno por tramo: la pausa de mediodia sale sola de no haber tramo que
+  // la cubra, sin necesidad de tratarla como un caso aparte.
   return dias
     .filter((dia) => dia.open)
-    .map(
-      (dia) =>
-        ({
-          agentId,
-          weekday: dia.weekday,
-          startTime: `${dia.from}:00`,
-          endTime: `${dia.to}:00`,
-          validFrom: null,
-          validUntil: null,
-        }) as AgentShift,
+    .flatMap((dia) =>
+      (dia.ranges ?? []).map(
+        (tramo) =>
+          ({
+            agentId,
+            weekday: dia.weekday,
+            startTime: `${tramo.from}:00`,
+            endTime: `${tramo.to}:00`,
+            validFrom: null,
+            validUntil: null,
+          }) as AgentShift,
+      ),
     );
 }
 

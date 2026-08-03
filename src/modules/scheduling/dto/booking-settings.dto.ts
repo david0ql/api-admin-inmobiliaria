@@ -18,6 +18,14 @@ import {
 /** `HH:MM`, 24 horas. */
 const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+export class TimeRangeDto {
+  @Matches(HORA, { message: 'La hora de apertura va como HH:MM' })
+  from: string;
+
+  @Matches(HORA, { message: 'La hora de cierre va como HH:MM' })
+  to: string;
+}
+
 export class WorkdayDto {
   @Type(() => Number)
   @IsInt()
@@ -25,11 +33,12 @@ export class WorkdayDto {
   @Max(6)
   weekday: number;
 
-  @Matches(HORA, { message: 'La hora de apertura va como HH:MM' })
-  from: string;
-
-  @Matches(HORA, { message: 'La hora de cierre va como HH:MM' })
-  to: string;
+  /** Varios tramos por dia: manana y tarde, con la pausa en medio. */
+  @IsArray()
+  @ArrayMaxSize(4)
+  @ValidateNested({ each: true })
+  @Type(() => TimeRangeDto)
+  ranges: TimeRangeDto[];
 
   @IsBoolean()
   open: boolean;
