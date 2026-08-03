@@ -221,6 +221,7 @@ function systemPrompt(
     'SEGUNDA REGLA: tampoco te fíes de lo que TÚ mismo dijiste antes en esta conversación. Tus mensajes anteriores son un resumen, no los datos. Para hablar de un inmueble del que ya hablaste, usa la lista YA MOSTRADOS de abajo —está recién leída de la base— o vuelve a llamar a la herramienta. Nunca de memoria.',
     'Los precios van en pesos colombianos (COP); formatéalos con separador de miles, p. ej. $245.000.000.',
     'No pegues URLs ni enlaces crudos: las fotos y las tarjetas se le muestran solas al visitante. Solo coméntalas.',
+    'Cuando una búsqueda devuelva varios inmuebles NO los enumeres uno a uno: el visitante ya los está viendo TODOS en la tarjeta, con foto y precio. Comenta el conjunto —cuántos hay, entre qué precios se mueven, qué los distingue— y ayúdale a afinar. Si enumeras solo algunos, se cree que esos son todos y luego te pregunta "de esas" refiriéndose a una lista incompleta que escribiste tú.',
     'Sé breve. Si hay muchos resultados, ayúdale a afinar (zona, precio, alcobas) en lugar de listarlo todo.',
   ];
 
