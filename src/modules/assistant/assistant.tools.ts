@@ -242,6 +242,26 @@ export class AssistantTools {
    * de raiz: no tiene que acordarse ni volver a pedirlos. Sale ademas mas
    * barato que la llamada extra al modelo que costaba cada consulta.
    */
+  /**
+   * Los inmuebles ya mostrados en el hilo, releidos de la base.
+   *
+   * Entran por codigo desde el navegador y salen con los datos de AHORA: si un
+   * precio cambio hace un minuto, el asistente habla del nuevo. Se limita a lo
+   * que quepa razonablemente en el prompt.
+   */
+  async vistosParaPrompt(codes: string[]): Promise<string | null> {
+    const unicos = [...new Set(codes)].slice(-12);
+    if (!unicos.length) return null;
+
+    const fichas = await Promise.all(
+      unicos.map((code) => this.loadOrNull(code).catch(() => null)),
+    );
+    const vistos = fichas.filter((p) => p !== null).map((p) => cardView(p));
+    if (!vistos.length) return null;
+
+    return JSON.stringify(vistos.map(forModelCard));
+  }
+
   async fichaParaPrompt(code: string): Promise<string | null> {
     const property = await this.loadOrNull(code);
     if (!property) return null;

@@ -48,6 +48,26 @@ export class ChatDto {
   @MaxLength(32)
   code?: string;
 
+  /**
+   * Los inmuebles que el visitante ya ha visto en este hilo.
+   *
+   * Solo CODIGOS, nunca datos: el servidor los relee de la base antes de cada
+   * respuesta. Aunque alguien manipule esta lista, lo unico que consigue es que
+   * el asistente hable de otros inmuebles publicados — no puede colar un precio
+   * ni un dato falso, porque el dato no viaja por aqui.
+   *
+   * Hace falta porque el hilo es efimero y los mensajes anteriores del
+   * asistente son prosa: no llevan identificadores, asi que sin esto no puede
+   * volver a consultar aquello de lo que ya hablo.
+   */
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(24)
+  @IsString({ each: true })
+  @MaxLength(32, { each: true })
+  shownCodes?: string[];
+
   @ApiProperty({ type: [ChatTurnDto] })
   @IsArray()
   @ArrayMaxSize(80)

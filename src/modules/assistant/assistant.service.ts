@@ -79,8 +79,15 @@ export class AssistantService {
         ? await this.tools.fichaParaPrompt(scope.code).catch(() => null)
         : null;
 
+    // Lo que ya se le enseño, releido de la base. Sus propios mensajes son
+    // prosa y no llevan codigos, asi que sin esto no puede volver a consultar
+    // aquello de lo que ya hablo: contestaba de memoria y se contradecia.
+    const vistos = dto.shownCodes?.length
+      ? await this.tools.vistosParaPrompt(dto.shownCodes).catch(() => null)
+      : null;
+
     const messages: ChatMessage[] = [
-      { role: 'system', content: systemPrompt(scope, ficha) },
+      { role: 'system', content: systemPrompt(scope, ficha, vistos) },
       ...this.sanitizeHistory(dto.messages),
     ];
 
@@ -199,7 +206,11 @@ export class AssistantService {
 }
 
 /** El carácter del asistente y sus reglas, según dónde esté el visitante. */
-function systemPrompt(scope: AssistantScope, ficha?: string | null): string {
+function systemPrompt(
+  scope: AssistantScope,
+  ficha?: string | null,
+  vistos?: string | null,
+): string {
   const base = [
     'Eres el asistente virtual de Serrano Inmobiliaria, una agencia de Santander (Colombia) que trabaja Bucaramanga, Floridablanca, Girón y Piedecuesta.',
     'Cada inmueble está en la ciudad que digan SUS datos. Que la agencia sea de Bucaramanga no significa que el inmueble lo sea: mira siempre el dato, nunca lo supongas por el nombre de la agencia.',
@@ -207,7 +218,7 @@ function systemPrompt(scope: AssistantScope, ficha?: string | null): string {
     'Hablas español colombiano, con calidez y de tú, en frases cortas. Eres un vendedor servicial, nunca un robot: nada de "como modelo de lenguaje".',
     '',
     'REGLA DE ORO: nunca inventes datos. Cada precio, área, alcoba, característica, fecha o disponibilidad debe salir de una herramienta. Si una herramienta no te da un dato, di con naturalidad que no lo tienes a la mano y ofrece agendar una visita o que un asesor lo confirme. Jamás supongas.',
-    'SEGUNDA REGLA: tampoco te fíes de lo que TÚ mismo dijiste antes en esta conversación. Tus mensajes anteriores son un resumen, no los datos: no llevan el inventario dentro. Si te preguntan por un inmueble del que ya hablaste —cuál es el más barato, cuánto costaba, cuántas alcobas tenía—, vuelve a llamar a la herramienta EN ESTE MISMO TURNO antes de responder. Contestar de memoria es como te contradices.',
+    'SEGUNDA REGLA: tampoco te fíes de lo que TÚ mismo dijiste antes en esta conversación. Tus mensajes anteriores son un resumen, no los datos. Para hablar de un inmueble del que ya hablaste, usa la lista YA MOSTRADOS de abajo —está recién leída de la base— o vuelve a llamar a la herramienta. Nunca de memoria.',
     'Los precios van en pesos colombianos (COP); formatéalos con separador de miles, p. ej. $245.000.000.',
     'No pegues URLs ni enlaces crudos: las fotos y las tarjetas se le muestran solas al visitante. Solo coméntalas.',
     'Sé breve. Si hay muchos resultados, ayúdale a afinar (zona, precio, alcobas) en lugar de listarlo todo.',
@@ -236,6 +247,14 @@ function systemPrompt(scope: AssistantScope, ficha?: string | null): string {
 
   return [
     ...base,
+    ...(vistos
+      ? [
+          '',
+          'YA MOSTRADOS en esta conversación (datos reales de ahora mismo, releídos de la base):',
+          vistos,
+          'Para comparar precios, decir cuál es el más barato o recordar cuántas alcobas tenía uno, usa ESTA lista, no lo que escribiste antes. Si te piden algo que no está aquí, busca de nuevo.',
+        ]
+      : []),
     '',
     'CONTEXTO: es el chat general del sitio. Ayúdale a encontrar inmuebles con buscar_inmuebles y a resolver dudas de cualquiera con ficha_inmueble, imagenes_inmueble y disponibilidad_visita.',
     'Cuando muestres resultados, invita a abrir el que le interese para ver todo y agendar.',
