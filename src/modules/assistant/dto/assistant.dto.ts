@@ -60,10 +60,18 @@ export class ChatDto {
    * asistente son prosa: no llevan identificadores, asi que sin esto no puede
    * volver a consultar aquello de lo que ya hablo.
    */
+  /*
+    El tope es holgado a proposito y el servidor se queda con los ultimos.
+
+    Con un limite ajustado, una conversacion normal —mira casas, luego
+    apartamentos, luego lotes— lo pasaba y el chat dejaba de responder entero
+    con un 400. Rechazar la peticion por traer historial de mas es convertir un
+    dato accesorio en un fallo total; recortarlo no le cuesta nada a nadie.
+  */
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(24)
+  @ArrayMaxSize(200)
   @IsString({ each: true })
   @MaxLength(32, { each: true })
   shownCodes?: string[];
