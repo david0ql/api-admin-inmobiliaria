@@ -104,7 +104,12 @@ export class ConversationsService {
     const stage = [...pipeline.stages].sort(
       (a, b) => a.position - b.position,
     )[0];
-    const source = await this.sources.findOne({ where: { name: SOURCE_NAME } });
+    // Se crea la primera vez si no existe. Sin esto los leads del chat entran
+    // sin fuente y en el informe de atribucion no aparecen: el canal que los
+    // trajo queda invisible justo cuando se quiere saber si vale la pena.
+    const source =
+      (await this.sources.findOne({ where: { name: SOURCE_NAME } })) ??
+      (await this.sources.save(this.sources.create({ name: SOURCE_NAME })));
 
     return this.clients.save(
       this.clients.create({
