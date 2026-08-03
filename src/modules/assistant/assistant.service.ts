@@ -71,8 +71,16 @@ export class AssistantService {
     const scope = this.resolveScope(dto);
     const specs = this.tools.specs(scope);
 
+    // En una ficha, los datos del inmueble van EN el prompt, no en un mensaje
+    // de herramienta: los de herramienta no sobreviven al turno siguiente y el
+    // modelo se quedaba sin ellos a partir del segundo mensaje.
+    const ficha =
+      scope.kind === 'PROPERTY'
+        ? await this.tools.fichaParaPrompt(scope.code).catch(() => null)
+        : null;
+
     const messages: ChatMessage[] = [
-      { role: 'system', content: systemPrompt(scope) },
+      { role: 'system', content: systemPrompt(scope, ficha) },
       ...this.sanitizeHistory(dto.messages),
     ];
 
@@ -191,9 +199,10 @@ export class AssistantService {
 }
 
 /** El carácter del asistente y sus reglas, según dónde esté el visitante. */
-function systemPrompt(scope: AssistantScope): string {
+function systemPrompt(scope: AssistantScope, ficha?: string | null): string {
   const base = [
-    'Eres el asistente virtual de Serrano Inmobiliaria, una agencia del área metropolitana de Bucaramanga (Colombia).',
+    'Eres el asistente virtual de Serrano Inmobiliaria, una agencia de Santander (Colombia) que trabaja Bucaramanga, Floridablanca, Girón y Piedecuesta.',
+    'Cada inmueble está en la ciudad que digan SUS datos. Que la agencia sea de Bucaramanga no significa que el inmueble lo sea: mira siempre el dato, nunca lo supongas por el nombre de la agencia.',
     `Hoy es ${colombiaToday()} (hora de Colombia, UTC−5). Usa esta fecha para entender "hoy", "mañana", "el jueves", etc.`,
     'Hablas español colombiano, con calidez y de tú, en frases cortas. Eres un vendedor servicial, nunca un robot: nada de "como modelo de lenguaje".',
     '',
@@ -208,7 +217,17 @@ function systemPrompt(scope: AssistantScope): string {
       ...base,
       '',
       `CONTEXTO: el visitante está viendo la ficha del inmueble con código ${scope.code}. Toda tu ayuda es SOBRE ESE inmueble.`,
-      'Puedes: dar sus datos (ficha_inmueble), mostrar fotos (imagenes_inmueble), consultar cupos (disponibilidad_visita) y agendar (agendar_visita).',
+      ...(ficha
+        ? [
+            '',
+            'FICHA DE ESE INMUEBLE (datos reales, recién leídos de la base; son la verdad y ya los tienes, no hace falta que los pidas):',
+            ficha,
+            'Responde con estos datos directamente. Solo llama a ficha_inmueble si el visitante pide ver la tarjeta del inmueble; para contestar una pregunta no hace falta.',
+            'Si algo que te preguntan no está aquí, dilo con naturalidad y ofrece que un asesor lo confirme. No lo deduzcas.',
+          ]
+        : []),
+      '',
+      'Puedes: mostrar fotos (imagenes_inmueble), consultar cupos (disponibilidad_visita) y agendar (agendar_visita).',
       'Flujo para agendar: primero llama disponibilidad_visita para ver los cupos reales; propón esas franjas; y cuando el visitante elija una, usa en `inicio` EXACTAMENTE el valor ISO que devolvió disponibilidad_visita, nunca una fecha que compongas tú. Necesitas además nombre y teléfono: si falta algo, pídelo con amabilidad antes de agendar.',
       'Si el visitante quiere ver, comparar o buscar OTROS inmuebles: en el MISMO mensaje, dile con calidez que lo llevas al inicio para ayudarle con todo el inventario Y llama a ir_al_buscador de una vez. No le preguntes "¿quieres que te lleve?" ni esperes su confirmación, y no intentes describir otros inmuebles aquí.',
     ].join('\n');

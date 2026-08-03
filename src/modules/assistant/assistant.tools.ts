@@ -228,6 +228,26 @@ export class AssistantTools {
     };
   }
 
+  /**
+   * La ficha en crudo, para meterla en el prompt del sistema.
+   *
+   * El hilo del chat es efimero y los resultados de herramientas NO vuelven al
+   * modelo en el turno siguiente —a proposito: si volvieran desde el navegador,
+   * cualquiera podria inyectar un "resultado" falso—. Eso deja al modelo sin la
+   * ficha delante a partir del segundo mensaje, y ahi es donde rellenaba huecos:
+   * preguntado por la ciudad contestaba "Bucaramanga" porque era lo unico que
+   * mencionaba ciudades en su contexto, el propio prompt.
+   *
+   * Poniendole los datos en el sistema, en cada turno, el problema desaparece
+   * de raiz: no tiene que acordarse ni volver a pedirlos. Sale ademas mas
+   * barato que la llamada extra al modelo que costaba cada consulta.
+   */
+  async fichaParaPrompt(code: string): Promise<string | null> {
+    const property = await this.loadOrNull(code);
+    if (!property) return null;
+    return JSON.stringify(fullView(property));
+  }
+
   private async ficha(code?: string): Promise<ToolResult> {
     if (!code) return { forModel: { error: 'Falta el código del inmueble.' } };
     const property = await this.loadOrNull(code);
