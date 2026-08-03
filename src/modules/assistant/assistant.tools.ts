@@ -216,7 +216,6 @@ export class AssistantTools {
       this.resolveType(str(args.tipo)),
     ]);
 
-    const operacion = str(args.operacion)?.toLowerCase();
     const page = await this.properties.searchProperties({
       q: str(args.texto),
       cityId,
@@ -227,9 +226,12 @@ export class AssistantTools {
       minArea: num(args.areaMin),
       bedrooms: int(args.alcobasMin),
       bathrooms: int(args.banosMin),
-      forSale: operacion === 'venta' ? 'true' : undefined,
-      forRent: operacion === 'arriendo' ? 'true' : undefined,
-      forTransfer: operacion === 'permuta' ? 'true' : undefined,
+      // Siempre venta. La agencia no arrienda: los 642 inmuebles publicados
+      // estan en venta y ninguno en arriendo. Cuando el modelo podia elegir,
+      // preguntaba "¿venta o arriendo?", buscaba arriendos y contestaba "no
+      // tengo disponibles ahora mismo" — que suena a que si arrienda y se le
+      // acabaron, en vez de a que no es lo suyo.
+      forSale: 'true',
       sort: sortOf(str(args.orden)),
       limit: MAX_RESULTS,
     });
@@ -669,7 +671,6 @@ const BUSCAR_SPEC: ToolSpec = {
       },
       zona: { type: 'string', description: 'Barrio o zona, p. ej. Cabecera.' },
       tipo: { type: 'string', description: 'Apartamento, Casa, Lote, Local…' },
-      operacion: { type: 'string', enum: ['venta', 'arriendo', 'permuta'] },
       precioMin: { type: 'number' },
       precioMax: { type: 'number' },
       areaMin: { type: 'number', description: 'Área mínima en m².' },
