@@ -1,5 +1,18 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { CatalogModule } from '../catalog/catalog.module';
+import { CrmModule } from '../crm/crm.module';
+import { Client } from '../crm/domain/client.entity';
+import { LeadSource } from '../crm/domain/lead-source.entity';
+import { ChatConversation } from './domain/chat-conversation.entity';
+import { ChatMessage } from './domain/chat-message.entity';
+import { ChatReview } from './domain/chat-review.entity';
+import { AssistantRule } from './domain/assistant-rule.entity';
+import { AssistantSettings } from './domain/assistant-settings.entity';
+import { AssistantAdminController } from './assistant-admin.controller';
+import { ConversationsService } from './conversations.service';
+import { ReviewsService } from './reviews.service';
+import { RulesService } from './rules.service';
 import { SchedulingModule } from '../scheduling/scheduling.module';
 import { PublicModule } from '../public/public.module';
 import { AssistantController } from './assistant.controller';
@@ -17,8 +30,29 @@ import { OpenAiProvider } from './openai-provider';
  * al navegador salvo por el endpoint de chat, que va con limite de trafico.
  */
 @Module({
-  imports: [PublicModule, CatalogModule, SchedulingModule],
-  controllers: [AssistantController],
-  providers: [AssistantService, AssistantTools, OpenAiProvider],
+  imports: [
+    TypeOrmModule.forFeature([
+      ChatConversation,
+      ChatMessage,
+      ChatReview,
+      AssistantRule,
+      AssistantSettings,
+      Client,
+      LeadSource,
+    ]),
+    PublicModule,
+    CatalogModule,
+    SchedulingModule,
+    CrmModule,
+  ],
+  controllers: [AssistantController, AssistantAdminController],
+  providers: [
+    AssistantService,
+    AssistantTools,
+    OpenAiProvider,
+    ConversationsService,
+    ReviewsService,
+    RulesService,
+  ],
 })
 export class AssistantModule {}

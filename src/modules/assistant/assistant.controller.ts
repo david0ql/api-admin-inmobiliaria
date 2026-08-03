@@ -12,7 +12,13 @@ import type { Request, Response } from 'express';
 import { Public } from '../iam/decorators';
 import { AllowPendingPassword } from '../iam/guards/must-change-password.guard';
 import { AssistantService, type AssistantEvent } from './assistant.service';
-import { ChatDto } from './dto/assistant.dto';
+import { ConversationsService } from './conversations.service';
+import { ChatDto, IdentifyDto } from './dto/assistant.dto';
+
+/** La IP real del visitante. `trust proxy` ya deja `req.ip` correcto. */
+function ip(req: Request): string | undefined {
+  return req.ip;
+}
 
 /**
  * El chat de la web publica.
@@ -28,7 +34,22 @@ import { ChatDto } from './dto/assistant.dto';
 @AllowPendingPassword()
 @Controller('public/assistant')
 export class AssistantController {
-  constructor(private readonly assistant: AssistantService) {}
+  constructor(
+    private readonly assistant: AssistantService,
+    private readonly conversations: ConversationsService,
+  ) {}
+
+  @Post('identify')
+  // Crea un cliente en la cartera: se limita mas que el chat.
+  @Throttle({ default: { limit: 5, ttl: 300_000 } })
+  @ApiOperation({
+    summary: 'Identifica al visitante y abre su conversacion',
+    description:
+      'Busca por telefono y correo. Si ya existe reutiliza su ficha; si no, la crea.',
+  })
+  async identify(@Body() dto: IdentifyDto, @Req() req: Request) {
+    return this.conversations.identify(dto, ip(req));
+  }
 
   @Post('chat')
   // 20 turnos por minuto y por IP: da para una conversacion fluida y corta el

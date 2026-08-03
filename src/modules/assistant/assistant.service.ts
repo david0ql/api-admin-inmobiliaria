@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../../shared/config/app-config.service';
 import type { ChatMessage, ChatProvider } from './chat-provider';
+import { RulesService } from './rules.service';
+import { ConversationsService } from './conversations.service';
 import { OpenAiProvider } from './openai-provider';
 import {
   AssistantTools,
@@ -48,6 +50,8 @@ export class AssistantService {
   constructor(
     private readonly config: AppConfigService,
     private readonly tools: AssistantTools,
+    private readonly rules: RulesService,
+    private readonly conversations: ConversationsService,
     openai: OpenAiProvider,
   ) {
     // Un unico proveedor por ahora; el dia que haya otro, se elige por config.
@@ -86,10 +90,29 @@ export class AssistantService {
       ? await this.tools.vistosParaPrompt(dto.shownCodes).catch(() => null)
       : null;
 
+    // Lo que la agencia añade: las reglas que salieron de calificar respuestas
+    // y su texto libre. Va al final del prompt, que es lo que mas pesa.
+    const extra = await this.rules.promptExtra().catch(() => '');
+
     const messages: ChatMessage[] = [
-      { role: 'system', content: systemPrompt(scope, ficha, vistos) },
+      {
+        role: 'system',
+        content:
+          systemPrompt(scope, ficha, vistos, dto.visitorName) +
+          (extra ? `\n${extra}` : ''),
+      },
       ...this.sanitizeHistory(dto.messages),
     ];
+
+    // El turno del visitante se guarda antes de contestar: si la respuesta
+    // falla a mitad, la pregunta no se pierde y la conversacion sigue teniendo
+    // sentido al leerla.
+    const ultimo = dto.messages.at(-1);
+    if (dto.conversationId && ultimo?.role === 'user') {
+      await this.conversations
+        .append(dto.conversationId, 'user', ultimo.content)
+        .catch(() => undefined);
+    }
 
     const maxSteps = this.config.chat.maxSteps;
 
@@ -115,6 +138,11 @@ export class AssistantService {
 
         // El modelo contesto con texto: fin del turno.
         if (!pending.length) {
+          if (dto.conversationId && assistantText.trim()) {
+            await this.conversations
+              .append(dto.conversationId, 'assistant', assistantText)
+              .catch(() => undefined);
+          }
           yield { type: 'done' };
           return;
         }
@@ -214,10 +242,16 @@ function systemPrompt(
   scope: AssistantScope,
   ficha?: string | null,
   vistos?: string | null,
+  visitorName?: string,
 ): string {
   const base = [
     'Eres el asistente virtual de Serrano Inmobiliaria, una agencia de Santander (Colombia) que trabaja Bucaramanga, Floridablanca, Girón y Piedecuesta.',
     'Cada inmueble está en la ciudad que digan SUS datos. Que la agencia sea de Bucaramanga no significa que el inmueble lo sea: mira siempre el dato, nunca lo supongas por el nombre de la agencia.',
+    ...(visitorName
+      ? [
+          `Hablas con ${visitorName}. Llamale por su nombre de vez en cuando, sin repetirlo en cada frase.`,
+        ]
+      : []),
     `Hoy es ${colombiaToday()} (hora de Colombia, UTC−5). Usa esta fecha para entender "hoy", "mañana", "el jueves", etc.`,
     'Hablas español colombiano, con calidez y de tú, en frases cortas. Eres un vendedor servicial, nunca un robot: nada de "como modelo de lenguaje".',
     '',
