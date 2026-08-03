@@ -76,6 +76,21 @@ export class ChatDto {
   @MaxLength(32, { each: true })
   shownCodes?: string[];
 
+  /**
+   * Las visitas que este visitante pidio en este hilo.
+   *
+   * Es lo que le permite cambiarlas: el id se lo dimos al agendar, asi que
+   * tenerlo es la prueba de que la visita es suya. Por telefono no valdria —
+   * cualquiera que se sepa un numero podria mover la visita de otro.
+   */
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(64, { each: true })
+  bookedIds?: string[];
+
   @ApiProperty({ type: [ChatTurnDto] })
   @IsArray()
   @ArrayMaxSize(80)

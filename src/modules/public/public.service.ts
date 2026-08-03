@@ -405,6 +405,87 @@ export class PublicService {
   }
 
   /**
+   * Mueve una visita ya pedida a otra hora.
+   *
+   * Se identifica por el id que se devolvio al agendarla: lo tiene quien la
+   * pidio y nadie mas. No vale el telefono — cualquiera que se sepa un numero
+   * podria mover la visita de otro.
+   *
+   * Existe porque sin esto el asistente, al pedirle "cambiame la cita", creaba
+   * una SEGUNDA y decia que la habia cambiado. El asesor se plantaba dos veces.
+   */
+  async rescheduleVisit(
+    appointmentId: string,
+    startsAt: string,
+  ): Promise<{
+    appointmentId: string;
+    startsAt: Date;
+    endsAt: Date;
+    message: string;
+  }> {
+    const appointment = await this.appointments.findOne({
+      where: { id: appointmentId },
+      loadEagerRelations: false,
+    });
+    if (!appointment) throw new NotFoundException('Esa visita no existe');
+    if (appointment.status !== AppointmentStatus.SCHEDULED) {
+      throw new BadRequestException(
+        'Esa visita ya no se puede cambiar. Un asesor te ayuda con eso.',
+      );
+    }
+
+    const inicio = new Date(startsAt);
+    if (Number.isNaN(inicio.getTime()))
+      throw new BadRequestException('Fecha invalida');
+
+    const minStart = new Date(
+      Date.now() + this.config.publicBookingLeadHours * 3600 * 1000,
+    );
+    if (inicio < minStart) {
+      throw new BadRequestException(
+        `Las visitas se piden con al menos ${this.config.publicBookingLeadHours} horas de antelacion`,
+      );
+    }
+
+    // El asesor asignado tiene que seguir libre a la hora nueva; si no, no se
+    // mueve nada y se le dice que elija otra.
+    const fin = new Date(inicio.getTime() + 60 * 60 * 1000);
+    const libre = await this.availability.isAgentFree(
+      appointment.agentId,
+      inicio,
+      fin,
+      appointment.id,
+    );
+    if (!libre) {
+      throw new ConflictException(
+        'Esa hora ya esta ocupada. Elige otra de las disponibles.',
+      );
+    }
+
+    await this.appointments.update(
+      { id: appointment.id },
+      { startsAt: inicio, endsAt: fin },
+    );
+
+    await this.activities.record({
+      type: ActivityType.NOTE,
+      clientId: appointment.clientId,
+      propertyId: appointment.propertyId,
+      agentId: appointment.agentId,
+      summary: 'Visita reprogramada desde la web',
+      detail: `De ${appointment.startsAt.toISOString()} a ${inicio.toISOString()}`,
+      automatic: true,
+    });
+
+    return {
+      appointmentId: appointment.id,
+      startsAt: inicio,
+      endsAt: fin,
+      message: 'Visita reprogramada. Un asesor te confirmara por telefono.',
+    };
+  }
+
+  /**
    * Reserva una visita desde la web.
    *
    * Hace de una vez lo que antes eran tres pasos manuales: da de alta al

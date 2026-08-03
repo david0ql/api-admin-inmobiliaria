@@ -16,7 +16,7 @@ import type { ToolSpec } from './chat-provider';
  * nuevo.
  */
 export type AssistantScope =
-  { kind: 'GLOBAL' } | { kind: 'PROPERTY'; code: string };
+  { kind: 'GLOBAL' } | { kind: 'PROPERTY'; code: string; bookedIds?: string[] };
 
 /**
  * El resultado de ejecutar una herramienta.
@@ -39,7 +39,14 @@ export type AssistantCard =
   | { type: 'property'; item: PropertyCardView }
   | { type: 'gallery'; code: string; title: string; images: GalleryImage[] }
   | { type: 'slots'; code: string; days: SlotDay[] }
-  | { type: 'booked'; code: string; startsAt: string; endsAt: string };
+  | {
+      type: 'booked';
+      code: string;
+      startsAt: string;
+      endsAt: string;
+      /** El navegador lo guarda: es lo que permite cambiar despues la visita. */
+      appointmentId: string;
+    };
 
 export type AssistantAction = { type: 'go_to_search'; reason?: string };
 
@@ -118,6 +125,7 @@ export class AssistantTools {
         IMAGENES_SPEC_LOCKED,
         DISPONIBILIDAD_SPEC_LOCKED,
         AGENDAR_SPEC_LOCKED,
+        ...(scope.bookedIds?.length ? [MODIFICAR_SPEC] : []),
         IR_AL_BUSCADOR_SPEC,
       ];
     }
@@ -160,6 +168,19 @@ export class AssistantTools {
           str(args.desde),
           str(args.hasta),
         );
+
+      case 'modificar_visita': {
+        const id = scope.kind === 'PROPERTY' ? scope.bookedIds?.at(-1) : null;
+        if (!id) {
+          return {
+            forModel: {
+              error:
+                'No hay ninguna visita pedida en esta conversación que puedas cambiar. Dile que un asesor se la mueve.',
+            },
+          };
+        }
+        return this.modificar(id, str(args.inicio));
+      }
 
       case 'agendar_visita':
         if (!lockedCode) {
@@ -359,6 +380,61 @@ export class AssistantTools {
     };
   }
 
+  /**
+   * Mueve la visita que se pidio en esta misma conversacion.
+   *
+   * El id no lo elige el modelo: lo pone el servidor a partir de lo que el
+   * navegador devuelve del hilo. Asi no puede tocar la cita de otra persona
+   * aunque se lo pidan.
+   */
+  private async modificar(
+    appointmentId: string,
+    inicio?: string,
+  ): Promise<ToolResult> {
+    if (!inicio) {
+      return {
+        forModel: {
+          error:
+            'Falta la hora nueva. Pídesela y usa el valor ISO exacto que devolvió disponibilidad_visita.',
+        },
+      };
+    }
+
+    try {
+      const result = await this.properties.rescheduleVisit(
+        appointmentId,
+        inicio,
+      );
+      return {
+        forModel: {
+          ok: true,
+          confirmacion: result.message,
+          inicio: result.startsAt,
+          nota: 'Confírmale que es la MISMA visita movida, no una nueva.',
+        },
+        card: {
+          type: 'booked',
+          code: '',
+          startsAt: String(result.startsAt),
+          endsAt: String(result.endsAt),
+          appointmentId: result.appointmentId,
+        },
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'No se pudo cambiar la visita.';
+      this.logger.warn(`modificar_visita fallo: ${message}`);
+      return {
+        forModel: {
+          error: message,
+          nota: 'Explícaselo con amabilidad y ofrécele otra hora.',
+        },
+      };
+    }
+  }
+
   private async agendar(
     code: string,
     args: Record<string, unknown>,
@@ -402,6 +478,7 @@ export class AssistantTools {
           code: result.propertyCode,
           startsAt: String(result.startsAt),
           endsAt: String(result.endsAt),
+          appointmentId: result.appointmentId,
         },
       };
     } catch (error) {
@@ -700,6 +777,25 @@ const AGENDAR_SPEC_LOCKED: ToolSpec = {
       mensaje: { type: 'string', description: 'Nota opcional para el asesor.' },
     },
     required: ['inicio', 'nombre', 'telefono'],
+  },
+};
+
+const MODIFICAR_SPEC: ToolSpec = {
+  name: 'modificar_visita',
+  description:
+    'Cambia la hora de la visita que este visitante YA pidió en esta conversación. ' +
+    'Úsala siempre que quiera moverla, aplazarla o cambiarla: NUNCA agendes otra, ' +
+    'porque entonces el asesor tendría dos citas y se presentaría dos veces.',
+  parameters: {
+    type: 'object',
+    properties: {
+      inicio: {
+        type: 'string',
+        description:
+          'Hora nueva, en el valor ISO EXACTO que devolvió disponibilidad_visita.',
+      },
+    },
+    required: ['inicio'],
   },
 };
 

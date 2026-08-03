@@ -179,14 +179,51 @@ export class AvailabilityService {
    * ese día. Reparte la carga sin necesidad de que nadie la administre.
    * Devuelve null si a esa hora ya no queda nadie.
    */
+  /**
+   * Si un asesor sigue libre en una franja, ignorando una cita concreta.
+   *
+   * `exceptId` es la cita que se esta moviendo: sin eso choca consigo misma.
+   */
+  async isAgentFree(
+    agentId: string | null,
+    startsAt: Date,
+    endsAt: Date,
+    exceptId?: string,
+  ): Promise<boolean> {
+    if (!agentId) return false;
+
+    const { date, weekday, time } = enColombia(startsAt);
+    const shifts = await this.shifts.find({ where: { agentId } });
+    const own = shifts.length ? shifts : DEFAULT_SHIFTS(agentId);
+    const cubierto = own.some(
+      (shift) =>
+        shift.weekday === weekday &&
+        shift.startTime <= time &&
+        shift.endTime > time &&
+        (!shift.validFrom || shift.validFrom <= date) &&
+        (!shift.validUntil || shift.validUntil >= date),
+    );
+    if (!cubierto) return false;
+
+    const query = this.appointments
+      .createQueryBuilder('appointment')
+      .where('appointment.agent_id = :agentId', { agentId })
+      .andWhere('appointment.status IN (:...statuses)', { statuses: BLOCKING })
+      .andWhere(
+        'appointment.starts_at < :endsAt AND appointment.ends_at > :startsAt',
+        { startsAt, endsAt },
+      );
+    if (exceptId) query.andWhere('appointment.id <> :exceptId', { exceptId });
+
+    return (await query.getCount()) === 0;
+  }
+
   async pickAgentFor(
     startsAt: Date,
     endsAt: Date,
     preferredId?: string | null,
   ): Promise<string | null> {
-    const date = startsAt.toISOString().slice(0, 10);
-    const weekday = startsAt.getUTCDay();
-    const time = startsAt.toISOString().slice(11, 19);
+    const { date, weekday, time } = enColombia(startsAt);
 
     const team = await this.agents.find({
       where: { status: AgentStatus.ACTIVE },
@@ -278,8 +315,8 @@ function DEFAULT_SHIFTS(agentId: string): AgentShift[] {
 
 function gridOf(date: string, startTime: string, endTime: string) {
   const slots: { start: Date; end: Date }[] = [];
-  let cursor = new Date(`${date}T${startTime.slice(0, 8)}Z`);
-  const limit = new Date(`${date}T${endTime.slice(0, 8)}Z`);
+  let cursor = new Date(`${date}T${startTime.slice(0, 8)}${COLOMBIA}`);
+  const limit = new Date(`${date}T${endTime.slice(0, 8)}${COLOMBIA}`);
 
   while (cursor.getTime() + SLOT_MINUTES * 60_000 <= limit.getTime()) {
     const end = new Date(cursor.getTime() + SLOT_MINUTES * 60_000);
@@ -289,10 +326,42 @@ function gridOf(date: string, startTime: string, endTime: string) {
   return slots;
 }
 
+/**
+ * Colombia no tiene horario de verano: son siempre −05:00.
+ *
+ * El turno de un asesor se guarda como hora de pared —"de 08:00 a 15:00"— y
+ * eso es hora de Bucaramanga, no UTC. Sellarlo con `Z` lo corria cinco horas:
+ * la web ofrecia visitas "de 3 a 10 de la mañana", y como la comprobacion usaba
+ * la misma ventana torcida, se podian reservar de madrugada de verdad.
+ */
+const COLOMBIA = '-05:00';
+
+/**
+ * Un instante, leido como hora de pared de Colombia.
+ *
+ * Los turnos se guardan como "de 08:00 a 15:00" y eso es hora de Bucaramanga.
+ * Comparar contra `toISOString()` —que es UTC— desplaza cinco horas: la jornada
+ * quedaba de 3 a 10 de la mañana, y las 3 de la tarde caian fuera del turno que
+ * las incluye.
+ */
+function enColombia(instant: Date): {
+  date: string;
+  weekday: number;
+  time: string;
+} {
+  const local = new Date(instant.getTime() - 5 * 3600 * 1000);
+  const iso = local.toISOString();
+  return {
+    date: iso.slice(0, 10),
+    weekday: local.getUTCDay(),
+    time: iso.slice(11, 19),
+  };
+}
+
 function startOfDay(date: string): Date {
-  return new Date(`${date.slice(0, 10)}T00:00:00.000Z`);
+  return new Date(`${date.slice(0, 10)}T00:00:00.000${COLOMBIA}`);
 }
 
 function endOfDay(date: string): Date {
-  return new Date(`${date.slice(0, 10)}T23:59:59.999Z`);
+  return new Date(`${date.slice(0, 10)}T23:59:59.999${COLOMBIA}`);
 }
