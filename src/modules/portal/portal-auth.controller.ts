@@ -84,6 +84,20 @@ export class PortalAuthController {
     return this.respond(res, session);
   }
 
+  /**
+   * Renueva la sesión con la cookie.
+   *
+   * Sin cookie devuelve 200 con `client: null`, no 401.
+   *
+   * No es laxitud: es que "¿tengo sesión?" es una PREGUNTA, y "no" es una
+   * respuesta válida, no un error. El sitio la hace en cada carga para saber si
+   * enseñar "Entrar" o "Mi cuenta", y la inmensa mayoria de quienes entran no
+   * son clientes registrados — asi que un 401 pintaba la consola de rojo en
+   * cada visita normal y enterraba los errores de verdad entre ruido.
+   *
+   * El 401 se queda para lo que sí es un error: traer una cookie y que no
+   * valga. Eso merece verse.
+   */
   @Post('refresh')
   @HttpCode(200)
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
@@ -93,10 +107,11 @@ export class PortalAuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     assertSameOrigin(req, this.config);
-    const session = await this.auth.refresh(
-      readCookie(req, COOKIE) ?? '',
-      meta(req),
-    );
+
+    const token = readCookie(req, COOKIE);
+    if (!token) return { client: null };
+
+    const session = await this.auth.refresh(token, meta(req));
     return this.respond(res, session);
   }
 

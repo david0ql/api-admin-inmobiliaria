@@ -1,14 +1,15 @@
 import {
   Body,
-  UseInterceptors,
   Controller,
   Get,
+  HttpCode,
   Param,
   ParseIntPipe,
   ParseUUIDPipe,
   Post,
   Query,
   Req,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -71,15 +72,26 @@ export class PublicController {
     return this.service.searchProperties(dto);
   }
 
-  /*
-    SIN cache, a proposito. Leer una ficha suma una visita al contador, que es
-    la señal de interes mas barata que tiene la agencia: cachearla la dejaria
-    congelada. Ademas es donde el precio importa mas.
-  */
+  @PublicCache(300)
   @Get('properties/:code')
   @ApiOperation({ summary: 'Ficha publica por codigo' })
   property(@Param('code') code: string) {
     return this.service.propertyByCode(code);
+  }
+
+  @PublicCache(300)
+  /**
+   * Suma una visita a la ficha.
+   *
+   * Aparte de leerla, para que la lectura se pueda cachear. Se limita fuerte:
+   * es una escritura publica y lo unico que se juega es un contador.
+   */
+  @Post('properties/:code/visit')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Registra que alguien abrio la ficha' })
+  async registerVisit(@Param('code') code: string): Promise<void> {
+    await this.service.registerVisit(code);
   }
 
   @PublicCache(300)

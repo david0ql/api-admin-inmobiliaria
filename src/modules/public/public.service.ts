@@ -226,15 +226,28 @@ export class PublicService {
   }
 
   /** Ficha pública por código. El uuid no se expone fuera. */
+  /**
+   * La ficha pública.
+   *
+   * Ya NO cuenta la visita. Contarla aquí ataba el contador a la lectura, y eso
+   * impedía cachear la página más visitada del sitio: cada visitante era una
+   * consulta con imágenes, ciudad, zona, tipo y moneda solo para poder sumar
+   * uno. Ahora la visita la registra la propia ficha al abrirse —ver
+   * `registerVisit`—, que además cuenta mejor: mide páginas abiertas, no
+   * llamadas a la API.
+   */
   async propertyByCode(code: string): Promise<PublicProperty> {
-    const property = await this.loadPublicProperty(code);
+    return this.propertyByCodeQuiet(code);
+  }
 
-    // Una visita a la ficha pública es la señal de interés más barata que hay.
-    await this.properties.increment({ id: property.id }, 'visits', 1);
-
-    return Object.assign(property, {
-      agent: await this.publicAgent(property.assignedAgentId),
-    });
+  /**
+   * Suma una visita.
+   *
+   * Va aparte de la lectura para que la ficha se pueda cachear. Es la señal de
+   * interés más barata que tiene la agencia y no se quiere perder.
+   */
+  async registerVisit(code: string): Promise<void> {
+    await this.properties.increment({ code }, 'visits', 1);
   }
 
   /**
