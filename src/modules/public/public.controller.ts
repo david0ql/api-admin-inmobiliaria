@@ -20,6 +20,7 @@ import { CaptchaService } from './captcha.service';
 import { BookVisitDto } from './dto/consignment.dto';
 import { CreateCreditRequestDto } from './dto/credit.dto';
 import { CreditRequestsService } from './credit-requests.service';
+import { HomeSettingsService } from './home-settings.service';
 import { SearchPublicProjectsDto } from './dto/public-projects.dto';
 import { SearchPublicPropertiesDto } from './dto/public-search.dto';
 
@@ -43,9 +44,20 @@ export class PublicController {
     private readonly captcha: CaptchaService,
     private readonly catalog: CatalogService,
     private readonly credits: CreditRequestsService,
+    private readonly homeSettings: HomeSettingsService,
   ) {}
 
   // --- inmuebles ---------------------------------------------------------
+
+  @Get('home/showcase')
+  @ApiOperation({
+    summary: 'El carrusel de la portada, ya resuelto',
+    description:
+      'Los inmuebles que toque segun la configuracion, mas como debe moverse.',
+  })
+  showcase() {
+    return this.homeSettings.showcase();
+  }
 
   @Get('properties')
   @ApiOperation({ summary: 'Inmuebles publicados y disponibles' })

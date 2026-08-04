@@ -17,6 +17,9 @@ import { CaptchaService } from './captcha.service';
 import { ConsignmentsService } from './consignments.service';
 import { ConsignmentsController } from './consignments.controller';
 import { RenderService } from './render.service';
+import { HomeSettings } from './domain/home-settings.entity';
+import { HomeSettingsService } from './home-settings.service';
+import { HomeSettingsController } from './home-settings.controller';
 import { SeoService } from './seo.service';
 import { SeoController } from './seo.controller';
 import { CreditRequestsService } from './credit-requests.service';
@@ -36,6 +39,7 @@ import { CreditRequestsController } from './credit-requests.controller';
       LeadSource,
       Property,
       Agent,
+      HomeSettings,
     ]),
     CatalogModule,
     PropertiesModule,
@@ -49,6 +53,7 @@ import { CreditRequestsController } from './credit-requests.controller';
     ConsignmentsController,
     CreditRequestsController,
     SeoController,
+    HomeSettingsController,
   ],
   providers: [
     PublicService,
@@ -57,6 +62,7 @@ import { CreditRequestsController } from './credit-requests.controller';
     CreditRequestsService,
     SeoService,
     RenderService,
+    HomeSettingsService,
   ],
   exports: [
     PublicService,
