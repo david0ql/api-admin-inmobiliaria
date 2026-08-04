@@ -32,6 +32,17 @@ export enum ShowcaseEffect {
  */
 @Entity('home_settings')
 export class HomeSettings extends BaseEntity {
+  /**
+   * Si el carrusel se enseña.
+   *
+   * Apagado desaparece la seccion entera —rotulo y boton incluidos—, no se
+   * queda un hueco. La configuracion se conserva: encenderlo otra vez devuelve
+   * lo que habia, sin rehacer nada.
+   */
+  @ApiProperty({ description: 'Si el carrusel se enseña en la portada.' })
+  @Column({ type: 'boolean', default: true })
+  enabled: boolean;
+
   @ApiProperty({ enum: ShowcaseSource })
   @Column({
     type: 'enum',

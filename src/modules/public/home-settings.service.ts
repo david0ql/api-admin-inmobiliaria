@@ -53,12 +53,26 @@ export class HomeSettingsService {
    * significa cada modo: pide el escaparate y pinta lo que le llega.
    */
   async showcase(): Promise<{
+    enabled: boolean;
     properties: Property[];
     autoplay: boolean;
     delayMs: number;
     effect: string;
   }> {
     const settings = await this.get();
+
+    // Apagado no se consulta el inventario: la web no va a pintar nada, y una
+    // consulta con relaciones por cada visita a la portada no es gratis.
+    if (!settings.enabled) {
+      return {
+        enabled: false,
+        properties: [],
+        autoplay: settings.autoplay,
+        delayMs: settings.delayMs,
+        effect: settings.effect,
+      };
+    }
+
     const take = Math.min(24, Math.max(3, settings.count));
 
     let properties: Property[] = [];
@@ -108,6 +122,7 @@ export class HomeSettingsService {
     }
 
     return {
+      enabled: true,
       properties,
       autoplay: settings.autoplay,
       delayMs: settings.delayMs,

@@ -15,6 +15,11 @@ import {
 import { ShowcaseEffect, ShowcaseSource } from '../domain/home-settings.entity';
 
 export class UpdateHomeSettingsDto {
+  @ApiPropertyOptional({ description: 'Si el carrusel se enseña.' })
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
   @ApiPropertyOptional({ enum: ShowcaseSource })
   @IsOptional()
   @IsEnum(ShowcaseSource)
