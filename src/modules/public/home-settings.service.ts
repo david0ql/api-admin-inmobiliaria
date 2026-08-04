@@ -7,6 +7,7 @@ import {
   Availability,
 } from '../properties/domain/property.enums';
 import { HomeSettings, ShowcaseSource } from './domain/home-settings.entity';
+import { CacheBuster } from '../../shared/cache/cache-buster.service';
 import type { UpdateHomeSettingsDto } from './dto/home-settings.dto';
 
 const VISIBLE = [PublicationStatus.ACTIVE, PublicationStatus.OUTSTANDING];
@@ -26,6 +27,7 @@ export class HomeSettingsService {
     private readonly repo: Repository<HomeSettings>,
     @InjectRepository(Property)
     private readonly properties: Repository<Property>,
+    private readonly buster: CacheBuster,
   ) {}
 
   async get(): Promise<HomeSettings> {
@@ -43,6 +45,9 @@ export class HomeSettingsService {
     const actual = await this.get();
     await this.repo.update({ id: actual.id }, dto);
     this.cached = undefined;
+    // Sin esto, la agencia guarda y no ve nada durante cinco minutos: peor que
+    // lento es que parezca roto.
+    await this.buster.flush('ajustes de la portada');
     return this.get();
   }
 

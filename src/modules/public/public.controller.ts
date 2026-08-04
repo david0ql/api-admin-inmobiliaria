@@ -1,5 +1,6 @@
 import {
   Body,
+  UseInterceptors,
   Controller,
   Get,
   Param,
@@ -21,6 +22,8 @@ import { BookVisitDto } from './dto/consignment.dto';
 import { CreateCreditRequestDto } from './dto/credit.dto';
 import { CreditRequestsService } from './credit-requests.service';
 import { HomeSettingsService } from './home-settings.service';
+import { PublicCache } from '../../shared/cache/public-cache.decorator';
+import { PublicCacheInterceptor } from '../../shared/cache/public-cache.interceptor';
 import { SearchPublicProjectsDto } from './dto/public-projects.dto';
 import { SearchPublicPropertiesDto } from './dto/public-search.dto';
 
@@ -37,6 +40,7 @@ import { SearchPublicPropertiesDto } from './dto/public-search.dto';
 @ApiTags('public')
 @Public()
 @AllowPendingPassword()
+@UseInterceptors(PublicCacheInterceptor)
 @Controller('public')
 export class PublicController {
   constructor(
@@ -49,6 +53,7 @@ export class PublicController {
 
   // --- inmuebles ---------------------------------------------------------
 
+  @PublicCache(300)
   @Get('home/showcase')
   @ApiOperation({
     summary: 'El carrusel de la portada, ya resuelto',
@@ -59,18 +64,25 @@ export class PublicController {
     return this.homeSettings.showcase();
   }
 
+  @PublicCache(300)
   @Get('properties')
   @ApiOperation({ summary: 'Inmuebles publicados y disponibles' })
   searchProperties(@Query() dto: SearchPublicPropertiesDto) {
     return this.service.searchProperties(dto);
   }
 
+  /*
+    SIN cache, a proposito. Leer una ficha suma una visita al contador, que es
+    la señal de interes mas barata que tiene la agencia: cachearla la dejaria
+    congelada. Ademas es donde el precio importa mas.
+  */
   @Get('properties/:code')
   @ApiOperation({ summary: 'Ficha publica por codigo' })
   property(@Param('code') code: string) {
     return this.service.propertyByCode(code);
   }
 
+  @PublicCache(300)
   @Get('properties/:code/siblings')
   @ApiOperation({
     summary: 'Otras unidades del mismo proyecto',
@@ -83,6 +95,7 @@ export class PublicController {
 
   // --- proyectos ---------------------------------------------------------
 
+  @PublicCache(300)
   @Get('projects')
   @ApiOperation({
     summary: 'Proyectos y conjuntos',
@@ -93,6 +106,7 @@ export class PublicController {
     return this.service.listFamilies(dto);
   }
 
+  @PublicCache(300)
   @Get('projects/:slug')
   @ApiOperation({ summary: 'Proyecto con sus tipologias y unidades' })
   project(@Param('slug') slug: string) {
@@ -101,6 +115,7 @@ export class PublicController {
 
   // --- catalogos para los filtros ----------------------------------------
 
+  @PublicCache(300)
   @Get('catalogs')
   @ApiOperation({ summary: 'Lo que necesita el buscador de la web' })
   async catalogs() {
@@ -112,6 +127,7 @@ export class PublicController {
     return { cities, propertyTypes, features };
   }
 
+  @PublicCache(300)
   @Get('catalogs/zones')
   @ApiQuery({ name: 'cityId', required: false, type: Number })
   @ApiOperation({
@@ -125,6 +141,7 @@ export class PublicController {
     return this.catalog.listZones(cityId);
   }
 
+  @PublicCache(300)
   @Get('catalogs/counts')
   @ApiOperation({
     summary: 'Inmuebles publicados por tipo',
@@ -137,6 +154,10 @@ export class PublicController {
 
   // --- agenda ------------------------------------------------------------
 
+  /*
+    SIN cache. Los cupos cambian en cuanto alguien agenda, y ofrecer una hora ya
+    tomada es peor que tardar 80 ms mas.
+  */
   @Get('properties/:code/availability')
   @ApiQuery({ name: 'from', required: true, example: '2026-08-05' })
   @ApiQuery({ name: 'to', required: true, example: '2026-08-20' })

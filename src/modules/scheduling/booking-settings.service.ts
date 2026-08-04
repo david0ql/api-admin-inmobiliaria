@@ -10,6 +10,7 @@ import {
   DEFAULT_WORKDAYS,
   type WorkdayHours,
 } from './domain/booking-settings.entity';
+import { CacheBuster } from '../../shared/cache/cache-buster.service';
 import type { UpdateBookingSettingsDto } from './dto/booking-settings.dto';
 
 /**
@@ -26,6 +27,7 @@ export class BookingSettingsService {
   constructor(
     @InjectRepository(BookingSettings)
     private readonly repo: Repository<BookingSettings>,
+    private readonly buster: CacheBuster,
   ) {}
 
   async get(): Promise<BookingSettings> {
@@ -41,6 +43,7 @@ export class BookingSettingsService {
     const actual = await this.get();
     await this.repo.update({ id: actual.id }, dto);
     this.cached = undefined;
+    await this.buster.flush('ajustes de la agenda');
     return this.get();
   }
 

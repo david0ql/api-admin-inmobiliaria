@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { AppCacheModule } from './shared/cache/cache.module';
 import { SharedModule } from './shared/shared.module';
 import { AllExceptionsFilter } from './shared/http/all-exceptions.filter';
 import { RequestContextMiddleware } from './shared/request-context/request-context.middleware';
@@ -25,6 +26,7 @@ import { AssistantModule } from './modules/assistant/assistant.module';
   imports: [
     SharedModule,
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 300 }]),
+    AppCacheModule,
     IamModule,
     CatalogModule,
     MediaModule,
