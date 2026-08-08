@@ -188,7 +188,7 @@ export class ConversationsService {
       .addSelect('client.email', 'email')
       .addSelect('client.cell_phone', 'cellPhone')
       .addSelect('COUNT(DISTINCT conversation.id)', 'conversations')
-      .addSelect('COALESCE(SUM(conversation.message_count), 0)', 'messages')
+      .addSelect('COUNT(DISTINCT message.id)', 'messages')
       .addSelect('MAX(conversation.last_message_at)', 'lastMessageAt')
       .addSelect(`COUNT(DISTINCT review.id)`, 'reviews')
       .leftJoin(
@@ -349,13 +349,21 @@ export class ConversationsService {
         email: client.email,
         cellPhone: client.cellPhone,
       },
-      conversations: conversations.map((conversation) => ({
-        id: conversation.id,
-        propertyCode: conversation.propertyCode,
-        createdAt: conversation.createdAt,
-        lastMessageAt: conversation.lastMessageAt,
-        messages: messages.filter((m) => m.conversationId === conversation.id),
-      })),
+      // Las que quedaron vacías no se enseñan: una línea separadora con cero
+      // mensajes debajo solo estorba a quien está leyendo.
+      conversations: conversations
+        .filter((conversation) =>
+          messages.some((m) => m.conversationId === conversation.id),
+        )
+        .map((conversation) => ({
+          id: conversation.id,
+          propertyCode: conversation.propertyCode,
+          createdAt: conversation.createdAt,
+          lastMessageAt: conversation.lastMessageAt,
+          messages: messages.filter(
+            (m) => m.conversationId === conversation.id,
+          ),
+        })),
     };
   }
 
