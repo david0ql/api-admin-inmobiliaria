@@ -191,6 +191,19 @@ export class ConversationsService {
       .addSelect('COUNT(DISTINCT message.id)', 'messages')
       .addSelect('MAX(conversation.last_message_at)', 'lastMessageAt')
       .addSelect(`COUNT(DISTINCT review.id)`, 'reviews')
+      /*
+        Los mensajes se cuentan de verdad y no por el contador de la fila: ese
+        se incrementa por turno y se quedó en 34 donde solo hay 28 guardados,
+        así que la lista decía una cosa y el hilo enseñaba otra.
+
+        El join es interno a propósito: quien abrió el chat, dejó sus datos y se
+        fue sin escribir no tiene nada que leer, así que no ocupa sitio.
+      */
+      .innerJoin(
+        'chat_message',
+        'message',
+        'message.conversation_id = conversation.id',
+      )
       .leftJoin(
         'chat_review',
         'review',
