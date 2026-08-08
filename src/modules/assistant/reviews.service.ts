@@ -39,6 +39,17 @@ export class ReviewsService {
     private readonly rules: RulesService,
   ) {}
 
+  /** Las calificaciones de todo lo que ha hablado un cliente. */
+  listForClient(clientId: string): Promise<ChatReview[]> {
+    return this.reviews
+      .createQueryBuilder('review')
+      .innerJoin('review.conversation', 'conversation')
+      .leftJoinAndSelect('review.reviewedBy', 'agent')
+      .where('conversation.client_id = :clientId', { clientId })
+      .orderBy('review.created_at', 'DESC')
+      .getMany();
+  }
+
   listFor(conversationId: string): Promise<ChatReview[]> {
     return this.reviews.find({
       where: { conversationId },

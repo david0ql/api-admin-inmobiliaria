@@ -49,6 +49,9 @@ export class AssistantAdminController {
   @ApiOperation({ summary: 'Histórico de conversaciones, con filtros' })
   list(
     @Query('q') q?: string,
+    @Query('name') name?: string,
+    @Query('email') email?: string,
+    @Query('phone') phone?: string,
     @Query('clientId') clientId?: string,
     @Query('reviewed') reviewed?: 'yes' | 'no',
     @Query('from') from?: string,
@@ -58,6 +61,9 @@ export class AssistantAdminController {
   ) {
     return this.conversations.search({
       q,
+      name,
+      email,
+      phone,
       clientId,
       reviewed,
       from,
@@ -65,6 +71,18 @@ export class AssistantAdminController {
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
+  }
+
+  @Get('clients/:clientId/thread')
+  @ApiOperation({
+    summary: 'Todo lo que un cliente ha hablado, en un solo hilo',
+  })
+  async thread(@Param('clientId') clientId: string) {
+    const [thread, reviews] = await Promise.all([
+      this.conversations.threadFor(clientId),
+      this.reviews.listForClient(clientId),
+    ]);
+    return { ...thread, reviews };
   }
 
   @Get('conversations/:id')

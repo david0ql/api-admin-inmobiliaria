@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, Repository } from 'typeorm';
+import { Brackets, In, Repository, type SelectQueryBuilder } from 'typeorm';
 import { normalizePhone } from '../crm/clients.service';
 import { LeadSource } from '../crm/domain/lead-source.entity';
 import { Client } from '../crm/domain/client.entity';
@@ -13,7 +13,12 @@ import type { IdentifyDto } from './dto/assistant.dto';
 const SOURCE_NAME = 'Chat web';
 
 export interface ConversationFilters {
+  /** Caja unica: busca en nombre, correo y telefono a la vez. */
   q?: string;
+  /** Y los tres por separado, para afinar. */
+  name?: string;
+  email?: string;
+  phone?: string;
   clientId?: string;
   reviewed?: 'yes' | 'no';
   from?: string;
@@ -158,34 +163,105 @@ export class ConversationsService {
     );
   }
 
-  /** El listado del panel, con sus filtros. */
+  /**
+   * El listado del panel: una fila por CLIENTE, no por conversación.
+   *
+   * Una persona que vuelve tres veces generaba tres filas seguidas con el mismo
+   * nombre, y quien revisa tenía que abrir las tres para entender una sola
+   * historia. Agrupado se lee como lo que es: un cliente y todo lo que ha
+   * hablado con nosotros.
+   *
+   * La agregación va en SQL y no en memoria: paginar en memoria obliga a traer
+   * todas las conversaciones para poder contar clientes, y eso deja de
+   * funcionar en cuanto haya unas miles.
+   */
   async search(filters: ConversationFilters) {
     const page = Math.max(1, filters.page ?? 1);
     const limit = Math.min(100, Math.max(1, filters.limit ?? 20));
 
     const qb = this.conversations
       .createQueryBuilder('conversation')
-      .leftJoinAndSelect('conversation.client', 'client')
-      // Con `count` en un left join la fila se duplica por cada calificación;
-      // como subconsulta cuenta bien y no toca el resto de la consulta.
-      .addSelect(
-        (sub) =>
-          sub
-            .select('COUNT(*)')
-            .from('chat_review', 'review')
-            .where('review.conversation_id = conversation.id'),
-        'reviews',
+      .innerJoin('conversation.client', 'client')
+      .select('client.id', 'clientId')
+      .addSelect('client.first_name', 'firstName')
+      .addSelect('client.last_name', 'lastName')
+      .addSelect('client.email', 'email')
+      .addSelect('client.cell_phone', 'cellPhone')
+      .addSelect('COUNT(DISTINCT conversation.id)', 'conversations')
+      .addSelect('COALESCE(SUM(conversation.message_count), 0)', 'messages')
+      .addSelect('MAX(conversation.last_message_at)', 'lastMessageAt')
+      .addSelect(`COUNT(DISTINCT review.id)`, 'reviews')
+      .leftJoin(
+        'chat_review',
+        'review',
+        'review.conversation_id = conversation.id',
       )
-      .orderBy('conversation.last_message_at', 'DESC');
+      .groupBy('client.id')
+      .addGroupBy('client.first_name')
+      .addGroupBy('client.last_name')
+      .addGroupBy('client.email')
+      .addGroupBy('client.cell_phone')
+      .orderBy('MAX(conversation.last_message_at)', 'DESC');
 
-    if (filters.clientId) {
-      qb.andWhere('conversation.client_id = :clientId', {
-        clientId: filters.clientId,
-      });
+    this.aplicarFiltros(qb, filters);
+
+    if (filters.reviewed === 'yes') {
+      qb.having('COUNT(DISTINCT review.id) > 0');
+    }
+    if (filters.reviewed === 'no') {
+      qb.having('COUNT(DISTINCT review.id) = 0');
     }
 
-    // Una sola caja para nombre, correo y telefono: quien busca no se para a
-    // pensar en que campo esta lo que recuerda.
+    // `getCount` no sirve con GROUP BY: cuenta filas del grupo, no grupos.
+    const total = (await qb.getRawMany()).length;
+
+    const rows = await qb
+      .offset((page - 1) * limit)
+      .limit(limit)
+      .getRawMany<{
+        clientId: string;
+        firstName: string;
+        lastName: string | null;
+        email: string | null;
+        cellPhone: string | null;
+        conversations: string;
+        messages: string;
+        lastMessageAt: Date;
+        reviews: string;
+      }>();
+
+    const data = rows.map((row) => ({
+      client: {
+        id: row.clientId,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        email: row.email,
+        cellPhone: row.cellPhone,
+      },
+      conversations: Number(row.conversations),
+      messages: Number(row.messages),
+      reviews: Number(row.reviews),
+      lastMessageAt: row.lastMessageAt,
+    }));
+
+    return { data, meta: { page, limit, total } };
+  }
+
+  /**
+   * Los filtros, en un sitio: la caja única y los tres campos por separado.
+   *
+   * Quien busca por el nombre no siempre recuerda cómo lo escribió el
+   * visitante, así que la caja única sirve para lo rápido y los campos para
+   * cuando ya se sabe qué se busca.
+   */
+  private aplicarFiltros(
+    qb: SelectQueryBuilder<ChatConversation>,
+    filters: ConversationFilters,
+  ): void {
+    if (filters.clientId) {
+      qb.andWhere('client.id = :clientId', { clientId: filters.clientId });
+    }
+
     if (filters.q?.trim()) {
       const q = `%${filters.q.trim().toLowerCase()}%`;
       const digits = filters.q.replace(/\D/g, '');
@@ -206,6 +282,26 @@ export class ConversationsService {
       );
     }
 
+    if (filters.name?.trim()) {
+      qb.andWhere(
+        "LOWER(client.first_name || ' ' || COALESCE(client.last_name, '')) LIKE :name",
+        { name: `%${filters.name.trim().toLowerCase()}%` },
+      );
+    }
+    if (filters.email?.trim()) {
+      qb.andWhere('LOWER(client.email) LIKE :email', {
+        email: `%${filters.email.trim().toLowerCase()}%`,
+      });
+    }
+    if (filters.phone?.trim()) {
+      const digits = filters.phone.replace(/\D/g, '');
+      if (digits) {
+        qb.andWhere('client.phone_normalized LIKE :tel', {
+          tel: `%${digits.slice(-10)}%`,
+        });
+      }
+    }
+
     if (filters.from) {
       qb.andWhere('conversation.last_message_at >= :from', {
         from: `${filters.from}T00:00:00-05:00`,
@@ -216,29 +312,51 @@ export class ConversationsService {
         to: `${filters.to}T23:59:59-05:00`,
       });
     }
-    if (filters.reviewed === 'yes') {
-      qb.andWhere(
-        'EXISTS (SELECT 1 FROM chat_review r WHERE r.conversation_id = conversation.id)',
-      );
-    }
-    if (filters.reviewed === 'no') {
-      qb.andWhere(
-        'NOT EXISTS (SELECT 1 FROM chat_review r WHERE r.conversation_id = conversation.id)',
-      );
-    }
+  }
 
-    const total = await qb.getCount();
-    const { entities, raw } = await qb
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getRawAndEntities<{ reviews: string }>();
+  /**
+   * Todo lo que un cliente ha hablado, seguido.
+   *
+   * Se devuelven sus conversaciones en orden con sus mensajes dentro, para que
+   * el panel las pinte como un solo hilo con una línea de separación entre
+   * una y otra. Es como se lee una historia: de principio a fin, sabiendo
+   * dónde hubo un corte.
+   */
+  async threadFor(clientId: string) {
+    const client = await this.clients.findOne({ where: { id: clientId } });
+    if (!client) throw new NotFoundException('Cliente no encontrado');
 
-    const data = entities.map((conversation, index) => ({
-      ...conversation,
-      reviews: Number(raw[index]?.reviews ?? 0),
-    }));
+    const conversations = await this.conversations.find({
+      where: { clientId },
+      order: { createdAt: 'ASC' },
+    });
 
-    return { data, meta: { page, limit, total } };
+    // Los mensajes de todas, en una consulta: una por conversación convierte
+    // un cliente hablador en veinte viajes a la base.
+    const ids = conversations.map((c) => c.id);
+    const messages = ids.length
+      ? await this.messages.find({
+          where: { conversationId: In(ids) },
+          order: { createdAt: 'ASC', position: 'ASC' },
+        })
+      : [];
+
+    return {
+      client: {
+        id: client.id,
+        firstName: client.firstName,
+        lastName: client.lastName,
+        email: client.email,
+        cellPhone: client.cellPhone,
+      },
+      conversations: conversations.map((conversation) => ({
+        id: conversation.id,
+        propertyCode: conversation.propertyCode,
+        createdAt: conversation.createdAt,
+        lastMessageAt: conversation.lastMessageAt,
+        messages: messages.filter((m) => m.conversationId === conversation.id),
+      })),
+    };
   }
 
   /** Una conversación con su hilo, para leerla entera. */
