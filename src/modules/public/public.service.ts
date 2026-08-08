@@ -124,6 +124,21 @@ export class PublicService {
         q: `%${dto.q.trim().toLowerCase()}%`,
       });
     }
+    /*
+      Pais y departamento van contra la ciudad ya unida, no contra columnas del
+      inmueble: la geografia cuelga de `city`, y el join ya esta hecho arriba
+      para poder pintar el nombre en la tarjeta.
+    */
+    if (dto.countryId)
+      qb.andWhere(
+        // La ciudad no guarda el pais: cuelga del departamento, y este del
+        // pais. La subconsulta evita meter otro join en la consulta principal,
+        // que es la que tambien se usa para contar y paginar.
+        'city.region_id IN (SELECT id FROM region WHERE country_id = :countryId)',
+        { countryId: dto.countryId },
+      );
+    if (dto.regionId)
+      qb.andWhere('city.region_id = :regionId', { regionId: dto.regionId });
     if (dto.cityId)
       qb.andWhere('property.city_id = :cityId', { cityId: dto.cityId });
     if (dto.zoneId)
@@ -192,6 +207,101 @@ export class PublicService {
       .getManyAndCount();
 
     return new Paginated(data, total, page, limit);
+  }
+
+  /**
+   * La geografía que el buscador puede ofrecer: país, departamento y ciudad.
+   *
+   * Sale del inventario y no del catálogo. En las tablas hay 38 países y 943
+   * departamentos porque el volcado traía el mundo entero, pero los 642
+   * inmuebles están todos en Santander: un desplegable con 37 países que no
+   * devuelven nada es peor que no tener el desplegable. Así, el día que se
+   * publique algo en Cundinamarca, Cundinamarca aparece sola.
+   *
+   * Va con el número de inmuebles de cada sitio porque quien elige «Girón»
+   * agradece saber que hay 74 antes de pulsar buscar.
+   */
+  async geography() {
+    const rows = await this.properties
+      .createQueryBuilder('property')
+      .innerJoin('property.city', 'city')
+      .innerJoin('city.region', 'region')
+      .innerJoin('region.country', 'country')
+      .select('country.id', 'countryId')
+      .addSelect('country.name', 'countryName')
+      .addSelect('region.id', 'regionId')
+      .addSelect('region.name', 'regionName')
+      .addSelect('city.id', 'cityId')
+      .addSelect('city.name', 'cityName')
+      .addSelect('COUNT(property.id)', 'count')
+      .where('property.publication_status IN (:...visible)', {
+        visible: VISIBLE,
+      })
+      .andWhere('property.availability = :available', {
+        available: Availability.AVAILABLE,
+      })
+      .groupBy('country.id')
+      .addGroupBy('country.name')
+      .addGroupBy('region.id')
+      .addGroupBy('region.name')
+      .addGroupBy('city.id')
+      .addGroupBy('city.name')
+      .orderBy('city.name', 'ASC')
+      .getRawMany<{
+        countryId: number;
+        countryName: string;
+        regionId: number;
+        regionName: string;
+        cityId: number;
+        cityName: string;
+        count: string;
+      }>();
+
+    const countries = new Map<
+      number,
+      { id: number; name: string; count: number }
+    >();
+    const regions = new Map<
+      number,
+      { id: number; name: string; countryId: number; count: number }
+    >();
+    const cities = rows.map((row) => {
+      const count = Number(row.count);
+
+      const pais = countries.get(row.countryId) ?? {
+        id: row.countryId,
+        name: row.countryName,
+        count: 0,
+      };
+      pais.count += count;
+      countries.set(pais.id, pais);
+
+      const depto = regions.get(row.regionId) ?? {
+        id: row.regionId,
+        name: row.regionName,
+        countryId: row.countryId,
+        count: 0,
+      };
+      depto.count += count;
+      regions.set(depto.id, depto);
+
+      return {
+        id: row.cityId,
+        name: row.cityName,
+        regionId: row.regionId,
+        countryId: row.countryId,
+        count,
+      };
+    });
+
+    const porNombre = (a: { name: string }, b: { name: string }) =>
+      a.name.localeCompare(b.name, 'es');
+
+    return {
+      countries: [...countries.values()].sort(porNombre),
+      regions: [...regions.values()].sort(porNombre),
+      cities,
+    };
   }
 
   /**

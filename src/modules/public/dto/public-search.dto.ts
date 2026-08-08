@@ -22,6 +22,21 @@ export class SearchPublicPropertiesDto {
   @IsString()
   q?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'Pais y departamento filtran de verdad, no solo alimentan el desplegable de ciudades: quien elige Santander sin elegir ciudad espera ver Santander entero.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  countryId?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  regionId?: number;
+
   @ApiPropertyOptional()
   @IsOptional()
   @Type(() => Number)

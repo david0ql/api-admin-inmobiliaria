@@ -131,12 +131,19 @@ export class PublicController {
   @Get('catalogs')
   @ApiOperation({ summary: 'Lo que necesita el buscador de la web' })
   async catalogs() {
-    const [cities, propertyTypes, features] = await Promise.all([
-      this.catalog.listCities(),
+    const [geo, propertyTypes, features] = await Promise.all([
+      // La geografia sale del inventario, no del catalogo: ver `geography()`.
+      this.service.geography(),
       this.catalog.listPropertyTypes(),
       this.catalog.listFeatures(),
     ]);
-    return { cities, propertyTypes, features };
+    return {
+      countries: geo.countries,
+      regions: geo.regions,
+      cities: geo.cities,
+      propertyTypes,
+      features,
+    };
   }
 
   @PublicCache(300)
