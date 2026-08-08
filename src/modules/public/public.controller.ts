@@ -145,6 +145,17 @@ export class PublicController {
   }
 
   @PublicCache(300)
+  @Get('catalogs/facets')
+  @ApiOperation({
+    summary: 'Cuantos inmuebles hay detras de cada opcion del buscador',
+    description:
+      'Acepta los mismos filtros que la busqueda. Cada desplegable se cuenta contra los DEMAS filtros y no contra si mismo, para que elegir una ciudad no deje a las otras en cero.',
+  })
+  facets(@Query() dto: SearchPublicPropertiesDto) {
+    return this.service.facets(dto);
+  }
+
+  @PublicCache(300)
   @Get('catalogs/zones')
   @ApiQuery({ name: 'cityId', required: false, type: Number })
   @ApiOperation({

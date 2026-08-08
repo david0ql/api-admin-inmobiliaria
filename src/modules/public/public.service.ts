@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Repository, type SelectQueryBuilder } from 'typeorm';
 import { AppConfigService } from '../../shared/config/app-config.service';
 import { Paginated } from '../../shared/http/paginated';
 import { ActivitiesService } from '../activity/activities.service';
@@ -48,6 +48,22 @@ import type { SearchPublicPropertiesDto } from './dto/public-search.dto';
 
 /** Solo se enseña fuera lo publicado; el resto ni existe para la web. */
 const VISIBLE = [PublicationStatus.ACTIVE, PublicationStatus.OUTSTANDING];
+
+/** Los desplegables que llevan cuenta. */
+export type Faceta =
+  | 'countries'
+  | 'regions'
+  | 'cities'
+  | 'zones'
+  | 'propertyTypes';
+
+export interface FacetOption {
+  id: number;
+  name: string;
+  count: number;
+}
+
+export type FacetResult = Record<Faceta, FacetOption[]>;
 
 /**
  * El asesor tal y como puede verlo un visitante: los datos con los que ya
@@ -119,62 +135,7 @@ export class PublicService {
         available: Availability.AVAILABLE,
       });
 
-    if (dto.q?.trim()) {
-      qb.andWhere('property.search_text LIKE :q', {
-        q: `%${dto.q.trim().toLowerCase()}%`,
-      });
-    }
-    /*
-      Pais y departamento van contra la ciudad ya unida, no contra columnas del
-      inmueble: la geografia cuelga de `city`, y el join ya esta hecho arriba
-      para poder pintar el nombre en la tarjeta.
-    */
-    if (dto.countryId)
-      qb.andWhere(
-        // La ciudad no guarda el pais: cuelga del departamento, y este del
-        // pais. La subconsulta evita meter otro join en la consulta principal,
-        // que es la que tambien se usa para contar y paginar.
-        'city.region_id IN (SELECT id FROM region WHERE country_id = :countryId)',
-        { countryId: dto.countryId },
-      );
-    if (dto.regionId)
-      qb.andWhere('city.region_id = :regionId', { regionId: dto.regionId });
-    if (dto.cityId)
-      qb.andWhere('property.city_id = :cityId', { cityId: dto.cityId });
-    if (dto.zoneId)
-      qb.andWhere('property.zone_id = :zoneId', { zoneId: dto.zoneId });
-    if (dto.propertyTypeId) {
-      qb.andWhere('property.property_type_id = :typeId', {
-        typeId: dto.propertyTypeId,
-      });
-    }
-    if (dto.familyId)
-      qb.andWhere('property.family_id = :familyId', { familyId: dto.familyId });
-    if (dto.minPrice)
-      qb.andWhere('property.sale_price >= :minPrice', {
-        minPrice: dto.minPrice,
-      });
-    if (dto.maxPrice)
-      qb.andWhere('property.sale_price <= :maxPrice', {
-        maxPrice: dto.maxPrice,
-      });
-    if (dto.bedrooms)
-      qb.andWhere('property.bedrooms >= :bedrooms', { bedrooms: dto.bedrooms });
-    if (dto.bathrooms)
-      qb.andWhere('property.bathrooms >= :bathrooms', {
-        bathrooms: dto.bathrooms,
-      });
-    if (dto.condition)
-      qb.andWhere('property.condition = :condition', {
-        condition: dto.condition,
-      });
-    if (dto.minArea)
-      qb.andWhere('property.area >= :minArea', { minArea: dto.minArea });
-    if (dto.maxArea)
-      qb.andWhere('property.area <= :maxArea', { maxArea: dto.maxArea });
-    if (dto.forRent === 'true') qb.andWhere('property.for_rent = true');
-    if (dto.forSale === 'true') qb.andWhere('property.for_sale = true');
-    if (dto.forTransfer === 'true') qb.andWhere('property.for_transfer = true');
+    this.aplicarFiltros(qb, dto);
 
     switch (dto.sort) {
       case 'price_asc':
@@ -207,6 +168,148 @@ export class PublicService {
       .getManyAndCount();
 
     return new Paginated(data, total, page, limit);
+  }
+
+  /**
+   * Los filtros de la busqueda publica, en un solo sitio.
+   *
+   * `omitir` existe para las facetas: al contar cuantos inmuebles hay en cada
+   * ciudad no se puede aplicar el filtro de ciudad, porque entonces las demas
+   * ciudades saldrian todas a cero y el desplegable se quedaria con una sola
+   * opcion. Cada faceta se cuenta contra los demas filtros, no contra si misma.
+   */
+  private aplicarFiltros(
+    qb: SelectQueryBuilder<Property>,
+    dto: SearchPublicPropertiesDto,
+    omitir?: Faceta,
+  ): void {
+    if (dto.q?.trim()) {
+      qb.andWhere('property.search_text LIKE :q', {
+        q: `%${dto.q.trim().toLowerCase()}%`,
+      });
+    }
+    /*
+      Pais y departamento van contra la ciudad ya unida, no contra columnas del
+      inmueble: la geografia cuelga de `city`, y el join ya esta hecho arriba
+      para poder pintar el nombre en la tarjeta.
+    */
+    if (dto.countryId && omitir !== 'countries')
+      qb.andWhere(
+        // La ciudad no guarda el pais: cuelga del departamento, y este del
+        // pais. La subconsulta evita meter otro join en la consulta principal,
+        // que es la que tambien se usa para contar y paginar.
+        'city.region_id IN (SELECT id FROM region WHERE country_id = :countryId)',
+        { countryId: dto.countryId },
+      );
+    if (dto.regionId && omitir !== 'regions')
+      qb.andWhere('city.region_id = :regionId', { regionId: dto.regionId });
+    if (dto.cityId && omitir !== 'cities')
+      qb.andWhere('property.city_id = :cityId', { cityId: dto.cityId });
+    if (dto.zoneId && omitir !== 'zones')
+      qb.andWhere('property.zone_id = :zoneId', { zoneId: dto.zoneId });
+    if (dto.propertyTypeId && omitir !== 'propertyTypes') {
+      qb.andWhere('property.property_type_id = :typeId', {
+        typeId: dto.propertyTypeId,
+      });
+    }
+    if (dto.familyId)
+      qb.andWhere('property.family_id = :familyId', { familyId: dto.familyId });
+    if (dto.minPrice)
+      qb.andWhere('property.sale_price >= :minPrice', {
+        minPrice: dto.minPrice,
+      });
+    if (dto.maxPrice)
+      qb.andWhere('property.sale_price <= :maxPrice', {
+        maxPrice: dto.maxPrice,
+      });
+    if (dto.bedrooms)
+      qb.andWhere('property.bedrooms >= :bedrooms', { bedrooms: dto.bedrooms });
+    if (dto.bathrooms)
+      qb.andWhere('property.bathrooms >= :bathrooms', {
+        bathrooms: dto.bathrooms,
+      });
+    if (dto.condition)
+      qb.andWhere('property.condition = :condition', {
+        condition: dto.condition,
+      });
+    if (dto.minArea)
+      qb.andWhere('property.area >= :minArea', { minArea: dto.minArea });
+    if (dto.maxArea)
+      qb.andWhere('property.area <= :maxArea', { maxArea: dto.maxArea });
+    if (dto.forRent === 'true') qb.andWhere('property.for_rent = true');
+    if (dto.forSale === 'true') qb.andWhere('property.for_sale = true');
+    if (dto.forTransfer === 'true') qb.andWhere('property.for_transfer = true');
+  }
+
+  /**
+   * Cuantos inmuebles hay detras de cada opcion de los desplegables.
+   *
+   * Es lo que convierte el buscador en algo que se puede recorrer sin caer en
+   * un cero: al elegir Floridablanca, los barrios y los tipos pasan a decir
+   * cuantos hay EN Floridablanca, no en todo el inventario. Cada faceta se
+   * cuenta contra los demas filtros y no contra si misma —ver `aplicarFiltros`—,
+   * porque si no, elegir una ciudad dejaria a las demas en cero y ya no se
+   * podria cambiar de idea sin borrar el filtro antes.
+   *
+   * Las cinco consultas son agrupaciones sobre 642 filas: salen en un par de
+   * milisegundos y la respuesta ademas va cacheada.
+   */
+  async facets(dto: SearchPublicPropertiesDto): Promise<FacetResult> {
+    const contar = async (
+      faceta: Faceta,
+      columna: string,
+      etiqueta: string,
+      joins: (qb: SelectQueryBuilder<Property>) => void,
+    ) => {
+      const qb = this.properties
+        .createQueryBuilder('property')
+        .where('property.publication_status IN (:...visible)', {
+          visible: VISIBLE,
+        })
+        .andWhere('property.availability = :available', {
+          available: Availability.AVAILABLE,
+        });
+      joins(qb);
+      this.aplicarFiltros(qb, dto, faceta);
+
+      const filas = await qb
+        .select(columna, 'id')
+        .addSelect(etiqueta, 'name')
+        .addSelect('COUNT(property.id)', 'count')
+        .groupBy(columna)
+        .addGroupBy(etiqueta)
+        .getRawMany<{ id: number | null; name: string | null; count: string }>();
+
+      return filas
+        .filter((f) => f.id !== null && f.name !== null)
+        .map((f) => ({
+          id: Number(f.id),
+          name: f.name as string,
+          count: Number(f.count),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'es'));
+    };
+
+    const geo = (qb: SelectQueryBuilder<Property>) => {
+      qb.innerJoin('property.city', 'city')
+        .innerJoin('city.region', 'region')
+        .innerJoin('region.country', 'country');
+    };
+
+    const [countries, regions, cities, zones, propertyTypes] =
+      await Promise.all([
+        contar('countries', 'country.id', 'country.name', geo),
+        contar('regions', 'region.id', 'region.name', geo),
+        contar('cities', 'city.id', 'city.name', geo),
+        contar('zones', 'zone.id', 'zone.name', (qb) =>
+          qb.innerJoin('property.zone', 'zone'),
+        ),
+        contar('propertyTypes', 'type.id', 'type.name', (qb) =>
+          qb.innerJoin('property.propertyType', 'type'),
+        ),
+      ]);
+
+    return { countries, regions, cities, zones, propertyTypes };
   }
 
   /**
