@@ -678,7 +678,10 @@ export class PublicService {
 
     const [unitTypes, properties] = await Promise.all([
       this.familiesService.unitTypes(family.id, { publicOnly: true }),
-      this.familiesService.propertiesOf(family.id, { publicOnly: true }),
+      this.familiesService.propertiesOf(family.id, {
+        publicOnly: true,
+        allImages: true,
+      }),
     ]);
 
     return {

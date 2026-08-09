@@ -97,7 +97,7 @@ export class FamiliesService {
    */
   async propertiesOf(
     id: string,
-    { publicOnly = false } = {},
+    { publicOnly = false, allImages = false } = {},
   ): Promise<Property[]> {
     const family = await this.findById(id);
     const ids = (await this.tree.findDescendants(family)).map((f) => f.id);
@@ -108,7 +108,15 @@ export class FamiliesService {
       .leftJoinAndSelect('property.city', 'city')
       .leftJoinAndSelect('property.zone', 'zone')
       .leftJoinAndSelect('property.currency', 'currency')
-      .leftJoinAndSelect('property.images', 'images', 'images.is_main = true')
+      /*
+        La portada basta para una tarjeta, pero la pagina del proyecto enseña
+        las fotos de la unidad que se elige: ahi hacen falta todas.
+      */
+      .leftJoinAndSelect(
+        'property.images',
+        'images',
+        allImages ? undefined : 'images.is_main = true',
+      )
       .where('property.family_id IN (:...ids)', {
         ids: ids.length ? ids : [family.id],
       });
@@ -124,6 +132,8 @@ export class FamiliesService {
     return qb
       .orderBy('property.area', 'ASC')
       .addOrderBy('property.sale_price', 'ASC')
+      // La principal primero: es la que se enseña al abrir la unidad.
+      .addOrderBy('images.is_main', 'DESC')
       .getMany();
   }
 
