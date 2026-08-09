@@ -681,7 +681,50 @@ export class PublicService {
       this.familiesService.propertiesOf(family.id, { publicOnly: true }),
     ]);
 
-    return { family, unitTypes, properties };
+    return {
+      family,
+      unitTypes,
+      properties,
+      amenities: await this.amenidades(properties.map((p) => p.id)),
+    };
+  }
+
+  /**
+   * Las zonas comunes del proyecto, sacadas de sus propias unidades.
+   *
+   * No hay una tabla de amenidades del conjunto ni hace falta inventarla: cada
+   * inmueble ya trae sus caracteristicas EXTERNAS —piscina, salon comunal,
+   * vigilancia—, y lo externo de un apartamento es, por definicion, lo que
+   * comparte con los demas.
+   *
+   * Se piden solo las que estan en al menos la mitad de las unidades. Una que
+   * aparece en una sola ficha no es una zona comun: es un dato mal cargado, y
+   * enseñarla como si fuera del conjunto seria prometer algo que no existe.
+   */
+  private async amenidades(
+    propertyIds: string[],
+  ): Promise<{ id: number; name: string }[]> {
+    if (!propertyIds.length) return [];
+
+    const filas = await this.dataSource
+      .createQueryBuilder()
+      .select('feature.id', 'id')
+      .addSelect('feature.name', 'name')
+      .addSelect('COUNT(*)', 'count')
+      .from('property_feature', 'pf')
+      .innerJoin('feature', 'feature', 'feature.id = pf.feature_id')
+      .where('pf.property_id IN (:...ids)', { ids: propertyIds })
+      .andWhere("feature.scope = 'EXTERNAL'")
+      .groupBy('feature.id')
+      .addGroupBy('feature.name')
+      .orderBy('COUNT(*)', 'DESC')
+      .addOrderBy('feature.name', 'ASC')
+      .getRawMany<{ id: number; name: string; count: string }>();
+
+    const minimo = Math.ceil(propertyIds.length / 2);
+    return filas
+      .filter((f) => Number(f.count) >= minimo)
+      .map((f) => ({ id: f.id, name: f.name }));
   }
 
   // --- agenda ------------------------------------------------------------
