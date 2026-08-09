@@ -54,12 +54,7 @@ export class PublicController {
 
   // --- inmuebles ---------------------------------------------------------
 
-  /*
-    SIN cache de respuesta, y no por descuido: lo que hay detras ya esta en
-    memoria —una consulta cada diez minutos— y guardar la respuesta cinco
-    minutos congelaria la rotacion justo lo que dura la cache. Asi cada visita
-    ve otros inmuebles sin que la base se entere.
-  */
+  @PublicCache(300)
   @Get('home/showcase')
   @ApiOperation({
     summary: 'El carrusel de la portada, ya resuelto',

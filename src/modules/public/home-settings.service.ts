@@ -45,8 +45,6 @@ export class HomeSettingsService {
     const actual = await this.get();
     await this.repo.update({ id: actual.id }, dto);
     this.cached = undefined;
-    // Y la rotacion guardada, que se armo con los ajustes de antes.
-    this.rotacion = undefined;
     // Sin esto, la agencia guarda y no ve nada durante cinco minutos: peor que
     // lento es que parezca roto.
     await this.buster.flush('ajustes de la portada');
@@ -59,17 +57,6 @@ export class HomeSettingsService {
    * Se resuelve aqui y no en la web para que el sitio no tenga que saber que
    * significa cada modo: pide el escaparate y pinta lo que le llega.
    */
-  /**
-   * El escaparate resuelto: el grupo en memoria y los ordenes ya hechos.
-   *
-   * La clave es que la base NO se consulta por visita. Se lee un grupo amplio
-   * cada diez minutos, se dejan preparados sesenta recortes distintos y cada
-   * peticion sirve el siguiente. Seis consultas por hora, pase lo que pase con
-   * el trafico, y aun asi quien recarga la portada ve otros inmuebles.
-   */
-  private rotacion?: { hasta: number; variantes: Property[][] };
-  private turno = 0;
-
   async showcase(): Promise<{
     enabled: boolean;
     properties: Property[];
@@ -103,48 +90,15 @@ export class HomeSettingsService {
   }
 
   /**
-   * Que inmuebles salen esta vez.
+   * Que inmuebles salen.
    *
-   * A mano no se rota: si la agencia eligio los codigos y su orden, ese orden
-   * es parte de la eleccion y barajarlo seria desobedecer al panel. En los
-   * otros dos modos si, porque "los ultimos" y "los destacados" son grupos, no
-   * una lista cerrada, y enseñar siempre los mismos nueve deja al resto del
-   * inventario sin existir para quien vuelve.
+   * Sin barajar, a proposito: el rotulo dice "ultimos inmuebles" y eso es una
+   * promesa concreta —lo que la agencia acaba de publicar—, no una seleccion
+   * variada. Quien vuelve al dia siguiente quiere ver si hay algo nuevo, y para
+   * eso el orden tiene que ser el mismo. Los proyectos si rotan, porque ahi el
+   * rotulo no promete novedad.
    */
-  private async elegidos(
-    settings: HomeSettings,
-    take: number,
-  ): Promise<Property[]> {
-    const ahora = Date.now();
-
-    if (this.rotacion && this.rotacion.hasta > ahora) {
-      const { variantes } = this.rotacion;
-      this.turno = (this.turno + 1) % variantes.length;
-      return variantes[this.turno];
-    }
-
-    const grupo = await this.grupo(settings, take);
-    const variantes =
-      settings.source === ShowcaseSource.MANUAL || grupo.length <= take
-        ? [grupo.slice(0, take)]
-        : Array.from({ length: VARIANTES }, () =>
-            barajar(grupo).slice(0, take),
-          );
-
-    this.rotacion = { hasta: ahora + POOL_TTL_MS, variantes };
-    this.turno = 0;
-    return variantes[0];
-  }
-
-  /**
-   * El grupo del que se elige: mas ancho que lo que se enseña.
-   *
-   * Se traen el triple —hasta 36— porque barajar una lista de nueve para
-   * enseñar nueve solo cambia el orden, no las fichas. Y solo el triple, no el
-   * inventario entero, para que "los ultimos publicados" siga significando algo
-   * y no salga uno de hace dos años.
-   */
-  private grupo(settings: HomeSettings, take: number): Promise<Property[]> {
+  private elegidos(settings: HomeSettings, take: number): Promise<Property[]> {
     const relations = {
       images: true,
       city: true,
@@ -163,6 +117,8 @@ export class HomeSettingsService {
           relations,
         })
         .then((elegidos) => {
+          // En el orden que puso la agencia, no en el que devuelve la base: si
+          // eligio a mano, el orden es parte de la eleccion.
           const porCodigo = new Map(elegidos.map((p) => [p.code, p]));
           return settings.codes
             .map((code) => porCodigo.get(code))
@@ -183,20 +139,7 @@ export class HomeSettingsService {
             })),
       relations,
       order: { createdAt: 'DESC' },
-      take: Math.min(36, take * 3),
+      take,
     });
   }
-}
-
-const POOL_TTL_MS = 10 * 60 * 1000;
-const VARIANTES = 60;
-
-/** Fisher-Yates: cada orden posible sale con la misma probabilidad. */
-function barajar<T>(items: T[]): T[] {
-  const copia = [...items];
-  for (let i = copia.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copia[i], copia[j]] = [copia[j], copia[i]];
-  }
-  return copia;
 }
