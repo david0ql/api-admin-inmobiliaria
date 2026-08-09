@@ -51,11 +51,7 @@ const VISIBLE = [PublicationStatus.ACTIVE, PublicationStatus.OUTSTANDING];
 
 /** Los desplegables que llevan cuenta. */
 export type Faceta =
-  | 'countries'
-  | 'regions'
-  | 'cities'
-  | 'zones'
-  | 'propertyTypes';
+  'countries' | 'regions' | 'cities' | 'zones' | 'propertyTypes';
 
 export interface FacetOption {
   id: number;
@@ -64,6 +60,41 @@ export interface FacetOption {
 }
 
 export type FacetResult = Record<Faceta, FacetOption[]>;
+
+/** Un proyecto del listado publico, con sus cifras ya calculadas. */
+export type PublicFamilySummary = Awaited<
+  ReturnType<PublicService['listFamilies']>
+>['data'][number];
+
+/** Cada cuanto se vuelve a leer el grupo del que se rota. */
+const POOL_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Cuantos ordenes distintos se dejan hechos.
+ *
+ * Sesenta, no tres: con pocos, quien entra dos veces seguidas reconoce la
+ * misma tanda y el efecto se pierde. Cuestan sesenta recorridos de una lista de
+ * veinticuatro cada diez minutos, que es nada, y se sirven de memoria.
+ */
+const VARIANTES = 60;
+
+/** Sesenta recortes distintos del mismo grupo, calculados de una vez. */
+function rotaciones<T>(pool: T[], tamano: number): T[][] {
+  if (!pool.length) return [];
+  return Array.from({ length: VARIANTES }, () =>
+    barajar(pool).slice(0, tamano),
+  );
+}
+
+/** Fisher-Yates: cada orden posible sale con la misma probabilidad. */
+function barajar<T>(items: T[]): T[] {
+  const copia = [...items];
+  for (let i = copia.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copia[i], copia[j]] = [copia[j], copia[i]];
+  }
+  return copia;
+}
 
 /**
  * El asesor tal y como puede verlo un visitante: los datos con los que ya
@@ -111,6 +142,13 @@ export class PublicService {
     private readonly config: AppConfigService,
     private readonly dataSource: DataSource,
   ) {}
+
+  /** El grupo del que se rota y los ordenes ya hechos. Ver `homeProjects`. */
+  private rotacionProyectos?: {
+    hasta: number;
+    variantes: PublicFamilySummary[][];
+  };
+  private turnoProyectos = 0;
 
   // --- inmuebles ---------------------------------------------------------
 
@@ -242,6 +280,38 @@ export class PublicService {
   }
 
   /**
+   * Los proyectos de la portada, rotando sin castigar la base.
+   *
+   * Enseñar siempre los mismos seis hace que el resto no exista para nadie que
+   * vuelva. Pero barajar en SQL —`ORDER BY RANDOM()`— es una consulta nueva por
+   * visita, y cada proyecto ademas arrastra el calculo de sus tipologias y su
+   * rango de precio.
+   *
+   * Asi que se consulta UNA vez cada diez minutos, se guarda el grupo en
+   * memoria y de ahi se sacan sesenta ordenes distintos ya hechos. Cada
+   * peticion solo elige el siguiente: la base ve seis consultas por hora en
+   * lugar de una por visitante, y aun asi quien recarga ve otros proyectos.
+   */
+  async homeProjects(limit = 6): Promise<PublicFamilySummary[]> {
+    const ahora = Date.now();
+
+    if (!this.rotacionProyectos || this.rotacionProyectos.hasta < ahora) {
+      const pool = await this.listFamilies({ page: 1, limit: 24 });
+      this.rotacionProyectos = {
+        hasta: ahora + POOL_TTL_MS,
+        variantes: rotaciones(pool.data, limit),
+      };
+    }
+
+    const { variantes } = this.rotacionProyectos;
+    if (!variantes.length) return [];
+    // Por peticion y no por reloj: dos personas que entran en el mismo minuto
+    // ven cosas distintas, que es lo que hace que el sitio parezca vivo.
+    this.turnoProyectos = (this.turnoProyectos + 1) % variantes.length;
+    return variantes[this.turnoProyectos];
+  }
+
+  /**
    * Cuantos inmuebles hay detras de cada opcion de los desplegables.
    *
    * Es lo que convierte el buscador en algo que se puede recorrer sin caer en
@@ -278,7 +348,11 @@ export class PublicService {
         .addSelect('COUNT(property.id)', 'count')
         .groupBy(columna)
         .addGroupBy(etiqueta)
-        .getRawMany<{ id: number | null; name: string | null; count: string }>();
+        .getRawMany<{
+          id: number | null;
+          name: string | null;
+          count: string;
+        }>();
 
       return filas
         .filter((f) => f.id !== null && f.name !== null)

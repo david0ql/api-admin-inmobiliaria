@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class SearchPublicProjectsDto {
   @ApiPropertyOptional({ description: 'Texto libre sobre el nombre' })
@@ -13,6 +13,14 @@ export class SearchPublicProjectsDto {
   @Type(() => Number)
   @IsInt()
   cityId?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Devuelve los proyectos en orden aleatorio. Lo usa la portada para que no salgan siempre los mismos cinco.',
+  })
+  @IsOptional()
+  @IsIn(['true'])
+  random?: string;
 
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()

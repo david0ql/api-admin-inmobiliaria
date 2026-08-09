@@ -54,7 +54,12 @@ export class PublicController {
 
   // --- inmuebles ---------------------------------------------------------
 
-  @PublicCache(300)
+  /*
+    SIN cache de respuesta, y no por descuido: lo que hay detras ya esta en
+    memoria —una consulta cada diez minutos— y guardar la respuesta cinco
+    minutos congelaria la rotacion justo lo que dura la cache. Asi cada visita
+    ve otros inmuebles sin que la base se entere.
+  */
   @Get('home/showcase')
   @ApiOperation({
     summary: 'El carrusel de la portada, ya resuelto',
@@ -63,6 +68,16 @@ export class PublicController {
   })
   showcase() {
     return this.homeSettings.showcase();
+  }
+
+  @Get('home/projects')
+  @ApiOperation({
+    summary: 'Los proyectos de la portada, rotando',
+    description:
+      'Salen de un grupo que se lee cada diez minutos y de sesenta ordenes ya hechos: cada peticion recibe otro sin consultar la base.',
+  })
+  homeProjects() {
+    return this.service.homeProjects(6);
   }
 
   @PublicCache(300)
