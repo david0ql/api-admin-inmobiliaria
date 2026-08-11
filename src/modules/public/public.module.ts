@@ -1,3 +1,4 @@
+import { ExchangeRateService } from './exchange-rate.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ActivityModule } from '../activity/activity.module';
@@ -56,6 +57,7 @@ import { CreditRequestsController } from './credit-requests.controller';
     HomeSettingsController,
   ],
   providers: [
+    ExchangeRateService,
     PublicService,
     CaptchaService,
     ConsignmentsService,

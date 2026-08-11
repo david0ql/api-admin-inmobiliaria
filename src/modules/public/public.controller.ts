@@ -26,6 +26,7 @@ import { HomeSettingsService } from './home-settings.service';
 import { PublicCache } from '../../shared/cache/public-cache.decorator';
 import { PublicCacheInterceptor } from '../../shared/cache/public-cache.interceptor';
 import { SearchPublicProjectsDto } from './dto/public-projects.dto';
+import { ExchangeRateService } from './exchange-rate.service';
 import { SearchPublicPropertiesDto } from './dto/public-search.dto';
 
 /**
@@ -50,6 +51,7 @@ export class PublicController {
     private readonly catalog: CatalogService,
     private readonly credits: CreditRequestsService,
     private readonly homeSettings: HomeSettingsService,
+    private readonly fx: ExchangeRateService,
   ) {}
 
   // --- inmuebles ---------------------------------------------------------
@@ -152,6 +154,21 @@ export class PublicController {
       this.catalog.listFeatures(),
     ]);
     return { cities, geo, propertyTypes, features };
+  }
+
+  /*
+    Media hora de cache: detras hay un servicio que solo pregunta dos veces al
+    dia, pero esto evita ademas que cada visita a la portada entre al servicio.
+  */
+  @PublicCache(1800)
+  @Get('fx/usd')
+  @ApiOperation({
+    summary: 'Cuantos pesos vale un dolar hoy',
+    description:
+      'TRM oficial de la Superfinanciera, con una fuente de mercado como respaldo. `null` si ninguna responde: la web esconde el conmutador en vez de inventarse una cifra.',
+  })
+  usd() {
+    return this.fx.usd();
   }
 
   @PublicCache(300)
