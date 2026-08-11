@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { ChatIssue } from '../domain/chat.enums';
+import { LOCALES, type Locale } from '../../i18n/domain/translation.entity';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -115,6 +116,22 @@ export class ChatDto {
   @IsString()
   @MaxLength(80)
   visitorName?: string;
+
+  /**
+   * El idioma en el que esta leyendo la web.
+   *
+   * Lo dice la URL del visitante —la raiz es español, `/en` es ingles—, asi que
+   * viaja en cada turno en lugar de deducirse aqui: el navegador puede estar en
+   * un idioma y la pagina abierta en el otro, y quien lee en ingles espera que
+   * el chat le conteste en ingles.
+   *
+   * Opcional y con español por defecto: un cliente viejo que no lo mande sigue
+   * funcionando exactamente igual que antes.
+   */
+  @ApiPropertyOptional({ enum: LOCALES, default: 'es' })
+  @IsOptional()
+  @IsIn(LOCALES)
+  locale?: Locale;
 
   @ApiProperty({ type: [ChatTurnDto] })
   @IsArray()

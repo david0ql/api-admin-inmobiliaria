@@ -14,6 +14,7 @@ import { AllowPendingPassword } from '../iam/guards/must-change-password.guard';
 import { AssistantService, type AssistantEvent } from './assistant.service';
 import { ConversationsService } from './conversations.service';
 import { ChatDto, IdentifyDto } from './dto/assistant.dto';
+import { texto } from './assistant.texts';
 
 /** La IP real del visitante. `trust proxy` ya deja `req.ip` correcto. */
 function ip(req: Request): string | undefined {
@@ -68,9 +69,7 @@ export class AssistantController {
     @Res() res: Response,
   ): Promise<void> {
     if (!this.assistant.enabled) {
-      throw new ServiceUnavailableException(
-        'El asistente no está disponible en este momento.',
-      );
+      throw new ServiceUnavailableException(texto('apagado', dto.locale));
     }
 
     res.set({
@@ -99,7 +98,7 @@ export class AssistantController {
       if (!controller.signal.aborted) {
         write(res, {
           type: 'error',
-          message: 'El asistente tuvo un problema. Inténtalo de nuevo.',
+          message: texto('fallo', dto.locale),
         });
       }
     } finally {

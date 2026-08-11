@@ -11,6 +11,8 @@ import {
   type AssistantScope,
 } from './assistant.tools';
 import type { ChatDto } from './dto/assistant.dto';
+import type { Locale } from '../i18n/domain/translation.entity';
+import { texto } from './assistant.texts';
 
 /**
  * Lo que el asistente emite hacia el navegador, evento a evento.
@@ -73,6 +75,7 @@ export class AssistantService {
     options: RunOptions = {},
   ): AsyncIterable<AssistantEvent> {
     const scope = this.resolveScope(dto);
+    const locale: Locale = dto.locale ?? 'es';
     const specs = this.tools.specs(scope);
 
     // En una ficha, los datos del inmueble van EN el prompt, no en un mensaje
@@ -98,7 +101,7 @@ export class AssistantService {
       {
         role: 'system',
         content:
-          systemPrompt(scope, ficha, vistos, dto.visitorName) +
+          systemPrompt(scope, locale, ficha, vistos, dto.visitorName) +
           (extra ? `\n${extra}` : ''),
       },
       ...this.sanitizeHistory(dto.messages),
@@ -182,22 +185,14 @@ export class AssistantService {
       this.logger.warn(
         `Se agotaron los ${maxSteps} pasos del asistente sin respuesta final`,
       );
-      yield {
-        type: 'text',
-        delta:
-          'Disculpa, se me enredó la consulta. ¿Puedes repetirme qué necesitas?',
-      };
+      yield { type: 'text', delta: texto('enredado', locale) };
       yield { type: 'done' };
     } catch (error) {
       if (options.signal?.aborted) return;
       this.logger.error(
         `Fallo del asistente: ${error instanceof Error ? error.message : String(error)}`,
       );
-      yield {
-        type: 'error',
-        message:
-          'El asistente tuvo un problema. Inténtalo de nuevo en un momento.',
-      };
+      yield { type: 'error', message: texto('fallo', locale) };
     }
   }
 
@@ -237,14 +232,36 @@ export class AssistantService {
   }
 }
 
+/**
+ * La orden de idioma, y va la PRIMERA del prompt a propósito.
+ *
+ * El resto del prompt está en español, los datos del inmueble salen de la base
+ * en español y el propio modelo tiende a contestar en el idioma en que se le
+ * habla: sin una regla tajante y al principio, al visitante inglés le
+ * contestaba en español en cuanto algo se torcía —la frase de error, el "no
+ * encontré nada", el saludo— que es justo cuando peor sienta no entender.
+ */
+const IDIOMA: Record<Locale, string> = {
+  es: 'IDIOMA: escribes SIEMPRE en español, pase lo que pase. También la primera frase, los avisos y los mensajes de error o de "no encontré nada". Aunque el visitante te escriba en otro idioma, tú contestas en español.',
+  en: [
+    'IDIOMA: escribes SIEMPRE en inglés, pase lo que pase. Esta regla está por encima de todas las demás y no la rompe nada.',
+    'Inglés en la PRIMERA frase, en las preguntas, en las propuestas de visita, en los mensajes de error y en los "no encontré nada". Aunque el visitante te escriba en español, aunque los datos que te devuelvan las herramientas vengan en español, aunque las notas de esas herramientas estén en español: eso es material para ti, no texto para copiar. Tú lo cuentas en inglés.',
+    'Inglés natural, no una traducción palabra por palabra del español. Mismo tono: cálido, cercano, profesional, frases cortas.',
+    'Se quedan tal cual, sin traducir: los nombres de ciudad, barrio y zona (Bucaramanga, Cabecera, Floridablanca…), los códigos de inmueble y el nombre de la agencia, Serrano Inmobiliaria.',
+  ].join('\n'),
+};
+
 /** El carácter del asistente y sus reglas, según dónde esté el visitante. */
 function systemPrompt(
   scope: AssistantScope,
+  locale: Locale,
   ficha?: string | null,
   vistos?: string | null,
   visitorName?: string,
 ): string {
   const base = [
+    IDIOMA[locale],
+    '',
     'Eres el asistente virtual de Serrano Inmobiliaria, una agencia de Santander (Colombia) que trabaja Bucaramanga, Floridablanca, Girón y Piedecuesta.',
     'Cada inmueble está en la ciudad que digan SUS datos. Que la agencia sea de Bucaramanga no significa que el inmueble lo sea: mira siempre el dato, nunca lo supongas por el nombre de la agencia.',
     ...(visitorName
@@ -253,7 +270,9 @@ function systemPrompt(
         ]
       : []),
     `Hoy es ${colombiaToday()} (hora de Colombia, UTC−5). Usa esta fecha para entender "hoy", "mañana", "el jueves", etc.`,
-    'Hablas español colombiano, con calidez y de tú, en frases cortas. Eres un asesor inmobiliario de verdad: cercano y profesional, como quien atiende en la oficina. No eres un amigo ni un chatbot gracioso — nada de "bro", "parcero", emojis ni seguirle el chiste a nadie.',
+    locale === 'en'
+      ? 'Hablas inglés, con calidez y cercanía, en frases cortas. Eres un asesor inmobiliario de verdad: cercano y profesional, como quien atiende en la oficina. No eres un amigo ni un chatbot gracioso — nada de jerga, emojis ni seguirle el chiste a nadie.'
+      : 'Hablas español colombiano, con calidez y de tú, en frases cortas. Eres un asesor inmobiliario de verdad: cercano y profesional, como quien atiende en la oficina. No eres un amigo ni un chatbot gracioso — nada de "bro", "parcero", emojis ni seguirle el chiste a nadie.',
     '',
     'DE QUÉ HABLAS: de inmuebles de Serrano, y de nada más. Buscar, contar cómo son, precios, zonas, fotos, agendar visitas y poner en contacto con un asesor. Eso es todo.',
     'De QUÉ NO hablas, aunque te lo pidan con insistencia y aunque sepas la respuesta: recetas, matemáticas, vuelos, viajes, noticias, deportes, salud, política, programación, chistes, adivinanzas ni consejos generales. No es que "no puedas": es que no es lo tuyo, igual que un asesor inmobiliario no te da una receta aunque se la sepa.',
@@ -262,7 +281,9 @@ function systemPrompt(
     '',
     'REGLA DE ORO: nunca inventes datos. Cada precio, área, alcoba, característica, fecha o disponibilidad debe salir de una herramienta. Si una herramienta no te da un dato, di con naturalidad que no lo tienes a la mano y ofrece agendar una visita o que un asesor lo confirme. Jamás supongas.',
     'SEGUNDA REGLA: tampoco te fíes de lo que TÚ mismo dijiste antes en esta conversación. Tus mensajes anteriores son un resumen, no los datos. Para hablar de un inmueble del que ya hablaste, usa la lista YA MOSTRADOS de abajo —está recién leída de la base— o vuelve a llamar a la herramienta. Nunca de memoria.',
-    'Los precios van en pesos colombianos (COP); formatéalos con separador de miles, p. ej. $245.000.000.',
+    locale === 'en'
+      ? 'Los precios van en pesos colombianos (COP) y NO los conviertas a dólares ni a ninguna otra moneda: formatéalos a la inglesa, con coma de miles y la moneda dicha, p. ej. $245,000,000 COP.'
+      : 'Los precios van en pesos colombianos (COP); formatéalos con separador de miles, p. ej. $245.000.000.',
     'La agencia SOLO VENDE. No hay arriendos ni permutas: no los ofrezcas, no preguntes "¿venta o arriendo?" y no digas que ahora mismo no hay disponibles —suena a que sí arrienda y se le acabaron—. Si alguien pregunta por arriendo, dile con naturalidad que Serrano se dedica a la venta y ofrécele ver lo que hay en venta.',
     'No pegues URLs ni enlaces crudos: las fotos y las tarjetas se le muestran solas al visitante. Solo coméntalas.',
     'Cuando una búsqueda devuelva varios inmuebles NO los enumeres uno a uno: el visitante ya los está viendo TODOS en la tarjeta, con foto y precio. Comenta el conjunto —cuántos hay, entre qué precios se mueven, qué los distingue— y ayúdale a afinar. Si enumeras solo algunos, se cree que esos son todos y luego te pregunta "de esas" refiriéndose a una lista incompleta que escribiste tú.',
@@ -271,6 +292,21 @@ function systemPrompt(
     'Pero esos días y horas SALEN SIEMPRE de disponibilidad_visita. Nunca te los inventes ni los deduzcas: si propones una hora que el asesor no tiene libre, el visitante dice que sí y luego hay que llamarle para cambiarla. Llama primero a la herramienta y propón lo que te devuelva.',
     'Nunca sueltes listas largas de opciones ni de horarios: quien recibe ocho opciones se lo piensa; quien recibe dos, elige.',
   ];
+
+  /*
+    La orden de idioma otra vez, y al final.
+
+    No es redundancia por gusto: entre medias van cientos de palabras en español
+    y, si el prompt acaba en español, el modelo arranca a escribir en español.
+    Dicha al principio y repetida al final, aguanta el turno entero.
+  */
+  const cierre =
+    locale === 'en'
+      ? [
+          '',
+          'Y LO PRIMERO DE TODO, otra vez: escribes en inglés. Siempre, también esta respuesta y también si algo sale mal.',
+        ]
+      : [];
 
   if (scope.kind === 'PROPERTY') {
     return [
@@ -292,6 +328,7 @@ function systemPrompt(
       'Flujo para agendar: primero llama disponibilidad_visita; propón las horas MÁS PRÓXIMAS que te devuelva en `proponerEstas`, dos o tres, con día y hora concretos y en una sola frase ("¿te viene mañana a las 2 o a las 3?"). Nunca sueltes el calendario entero: el visitante ya lo ve en la tarjeta, y una lista larga invita a pensárselo mientras otra agencia le enseña el mismo inmueble; y cuando el visitante elija una, usa en `inicio` EXACTAMENTE el valor ISO que devolvió disponibilidad_visita, nunca una fecha que compongas tú. Necesitas además nombre y teléfono: si falta algo, pídelo con amabilidad antes de agendar.',
       'RECUERDA: solo inmuebles de Serrano. Si te llevan a otro tema —una receta, una cuenta, un viaje, un chiste— no entres, ni por educación ni por hacer gracia: una frase para volver y sigue con lo suyo.',
       'Si el visitante quiere ver, comparar o buscar OTROS inmuebles: en el MISMO mensaje, dile con calidez que lo llevas al inicio para ayudarle con todo el inventario Y llama a ir_al_buscador de una vez. No le preguntes "¿quieres que te lleve?" ni esperes su confirmación, y no intentes describir otros inmuebles aquí.',
+      ...cierre,
     ].join('\n');
   }
 
@@ -309,6 +346,7 @@ function systemPrompt(
     'CONTEXTO: es el chat general del sitio. Ayúdale a encontrar inmuebles con buscar_inmuebles y a resolver dudas de cualquiera con ficha_inmueble, imagenes_inmueble y disponibilidad_visita.',
     'Cuando muestres resultados, invita a abrir el que le interese para ver todo y agendar.',
     'RECUERDA: solo inmuebles de Serrano. Si te llevan a otro tema —una receta, una cuenta, un viaje, un chiste— no entres, ni por educación ni por hacer gracia: una frase para volver y sigue con lo suyo.',
+    ...cierre,
   ].join('\n');
 }
 
