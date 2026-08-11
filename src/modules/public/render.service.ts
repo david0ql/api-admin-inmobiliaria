@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { Repository } from 'typeorm';
 import { AppConfigService } from '../../shared/config/app-config.service';
 import { Property } from '../properties/domain/property.entity';
+import { I18nService } from '../i18n/i18n.service';
+import type { Locale } from '../i18n/domain/translation.entity';
 import {
   Availability,
   PublicationStatus,
@@ -54,6 +56,7 @@ export class RenderService {
     @InjectRepository(Property)
     private readonly properties: Repository<Property>,
     private readonly config: AppConfigService,
+    private readonly i18n: I18nService,
   ) {}
 
   private get site(): string {
@@ -77,14 +80,22 @@ export class RenderService {
     return html;
   }
 
-  async property(code: string): Promise<string> {
-    const [shell, head] = await Promise.all([this.shell(), this.headFor(code)]);
-    return sinCabeceraGenerica(shell).replace('</head>', head + '</head>');
+  async property(code: string, locale: Locale = 'es'): Promise<string> {
+    const [shell, head] = await Promise.all([
+      this.shell(),
+      this.headFor(code, locale),
+    ]);
+    return sinCabeceraGenerica(shell)
+      .replace('<html lang="es"', `<html lang="${locale}"`)
+      .replace('</head>', head + '</head>');
   }
 
-  private async headFor(code: string): Promise<string> {
+  private async headFor(code: string, locale: Locale): Promise<string> {
     const ahora = Date.now();
-    const guardada = this.heads.get(code);
+    // La cabecera guardada es por inmueble Y por idioma: son dos textos
+    // distintos para la misma ficha.
+    const clave = `${locale}:${code}`;
+    const guardada = this.heads.get(clave);
     if (guardada && guardada.hasta > ahora) return guardada.head;
 
     const property = await this.properties.findOne({
@@ -107,31 +118,69 @@ export class RenderService {
       throw new NotFoundException();
     }
 
-    const head = this.head(property);
-    this.heads.set(code, { head, hasta: ahora + CACHE_MS });
+    const head = await this.head(property, locale);
+    this.heads.set(clave, { head, hasta: ahora + CACHE_MS });
     return head;
   }
 
-  private head(property: Property): string {
-    const url = `${this.site}/${slugify(property.title)}/${property.code}`;
+  private async head(property: Property, locale: Locale): Promise<string> {
+    /*
+      Las frases salen del mismo diccionario que la web: si la agencia cambia
+      "for sale" desde el panel, cambia tambien lo que ve Google. Tenerlas
+      escritas aqui a mano seria un segundo sitio donde corregirlas, y el que
+      nadie recuerda.
+    */
+    const t = await this.i18n.dictionary(locale);
+    const frase = (key: string, vars: Record<string, string | number> = {}) =>
+      (t[key] ?? key).replace(/\{(\w+)\}/g, (bruto, nombre: string) =>
+        nombre in vars ? String(vars[nombre]) : bruto,
+      );
+    const ingles = locale === 'en';
+
+    const ruta = `/${slugify(property.title)}/${property.code}`;
+    const urlEs = `${this.site}${ruta}`;
+    const urlEn = `${this.site}/en${ruta}`;
+    const url = ingles ? urlEn : urlEs;
     const place = [property.zone?.name, property.city?.name]
       .filter(Boolean)
       .join(', ');
     const price = property.salePrice ?? property.rentPrice;
 
+    const tipo = property.propertyType
+      ? (t[`catalog.propertyType.${property.propertyType.id}`] ??
+        property.propertyType.name)
+      : frase('property.fallback.type');
+
     const description = [
-      `${property.propertyType?.name ?? 'Inmueble'} en ${place || 'Santander'}`,
+      frase('page.property.seo.head.place', {
+        type: tipo,
+        place: place || frase('page.property.seo.place'),
+      }),
       property.area ? `${property.area} m²` : '',
-      property.bedrooms ? `${property.bedrooms} alcobas` : '',
-      property.bathrooms ? `${property.bathrooms} baños` : '',
+      property.bedrooms
+        ? frase('property.spec.bedrooms.count', { count: property.bedrooms })
+        : '',
+      property.bathrooms
+        ? frase('property.spec.bathrooms.count', { count: property.bathrooms })
+        : '',
       price ? money(price, property.currency?.iso) : '',
     ]
       .filter(Boolean)
       .join(' · ')
-      .concat('. Agenda tu visita en línea.')
+      .concat(frase('page.property.seo.head.cta'))
       .slice(0, 158);
 
-    const title = `${property.title} · Serrano Inmobiliaria`;
+    /*
+      El titulo en ingles se arma con sus piezas, como en la web: el guardado
+      esta en español y lleva dentro el nombre del barrio.
+    */
+    const titulo = ingles
+      ? frase(
+          property.forRent ? 'property.title.rent' : 'property.title.sale',
+          { type: tipo, place: place || frase('page.property.seo.place') },
+        )
+      : property.title;
+    const title = `${titulo} · Serrano Inmobiliaria`;
     const images = [...(property.images ?? [])].sort(
       (a, b) => Number(b.isMain) - Number(a.isMain) || a.position - b.position,
     );
@@ -150,7 +199,13 @@ export class RenderService {
       meta('property', 'og:title', title),
       meta('property', 'og:description', description),
       meta('property', 'og:url', url),
-      meta('property', 'og:locale', 'es_CO'),
+      meta('property', 'og:locale', ingles ? 'en_US' : 'es_CO'),
+      meta('property', 'og:locale:alternate', ingles ? 'es_CO' : 'en_US'),
+      // Las dos versiones, declaradas hermanas tambien aqui: esto es lo que
+      // lee un buscador cuando pide la ficha, antes de que arranque la web.
+      `<link rel="alternate" hreflang="es" href="${esc(urlEs)}" />`,
+      `<link rel="alternate" hreflang="en" href="${esc(urlEn)}" />`,
+      `<link rel="alternate" hreflang="x-default" href="${esc(urlEs)}" />`,
       meta('name', 'twitter:card', 'summary_large_image'),
       meta('name', 'twitter:title', title),
       meta('name', 'twitter:description', description),

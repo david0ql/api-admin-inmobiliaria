@@ -603,6 +603,8 @@
   "page.projects.seo.description": "Proyectos con unidades disponibles en Bucaramanga y su área metropolitana. Compara tipologías, áreas y precios desde.",
   "page.projects.seo.title": "Proyectos de vivienda nueva en Santander · {site}",
   "page.property.seo.description": "{type} en {place}{specs}. Agenda tu visita en línea.",
+  "page.property.seo.head.cta": ". Agenda tu visita en línea.",
+  "page.property.seo.head.place": "{type} en {place}",
   "page.property.seo.place": "Santander",
   "page.search.results.light": "Resultados de la",
   "page.search.results.strong": "búsqueda",

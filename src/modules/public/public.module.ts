@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ActivityModule } from '../activity/activity.module';
 import { CatalogModule } from '../catalog/catalog.module';
+import { I18nModule } from '../i18n/i18n.module';
 import { CrmModule } from '../crm/crm.module';
 import { MediaModule } from '../media/media.module';
 import { PropertiesModule } from '../properties/properties.module';
@@ -43,6 +44,7 @@ import { CreditRequestsController } from './credit-requests.controller';
       HomeSettings,
     ]),
     CatalogModule,
+    I18nModule,
     PropertiesModule,
     CrmModule,
     SchedulingModule,

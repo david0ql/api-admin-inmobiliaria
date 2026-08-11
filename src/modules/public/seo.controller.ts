@@ -51,6 +51,17 @@ export class SeoController {
    * disponibilidad, y un intermediario cacheandola durante horas es como se
    * enseña un inmueble ya vendido.
    */
+  /*
+    La misma ficha en ingles. nginx la pide para las URLs `/en/<titulo>/<codigo>`.
+  */
+  @Public()
+  @Get('render/en/:slug/:code')
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  @Header('Cache-Control', 'no-cache')
+  renderEn(@Param('code') code: string) {
+    return this.render.property(code, 'en');
+  }
+
   @Get('render/:slug/:code')
   @Header('Content-Type', 'text/html; charset=utf-8')
   @Header('Cache-Control', 'no-cache')

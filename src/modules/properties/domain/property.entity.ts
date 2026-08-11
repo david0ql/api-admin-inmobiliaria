@@ -264,6 +264,22 @@ export class Property extends BaseEntity {
   @Column({ type: 'text', nullable: true })
   observations: string | null;
 
+  /**
+   * Lo mismo, en ingles.
+   *
+   * Va en su propia columna y no en la tabla de traducciones porque no es una
+   * frase de la web: es texto libre que escribio un asesor sobre ESTE inmueble
+   * —"la terraza da al parque"— y hay uno distinto por ficha. Un diccionario de
+   * claves no puede con seiscientos textos irrepetibles.
+   *
+   * Vacio, la web en ingles no enseña nada en su lugar. Enseñar el español
+   * seria justo lo que se quiere evitar, y la descripcion automatica ya cuenta
+   * los datos del inmueble en ingles.
+   */
+  @ApiPropertyOptional({ nullable: true })
+  @Column({ name: 'observations_en', type: 'text', nullable: true })
+  observationsEn: string | null;
+
   // --- estado ------------------------------------------------------------
 
   @ApiProperty({ enum: Availability })

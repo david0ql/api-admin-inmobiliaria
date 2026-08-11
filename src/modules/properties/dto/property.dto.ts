@@ -191,6 +191,11 @@ export class CreatePropertyDto {
   @IsString()
   observations?: string;
 
+  @ApiPropertyOptional({ description: 'La descripcion del asesor, en ingles.' })
+  @IsOptional()
+  @IsString()
+  observationsEn?: string;
+
   @ApiPropertyOptional({ enum: Availability })
   @IsOptional()
   @IsEnum(Availability)

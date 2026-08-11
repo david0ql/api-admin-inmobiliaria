@@ -138,27 +138,52 @@ export class SeoService {
 
     return (
       '<?xml version="1.0" encoding="UTF-8"?>\n' +
-      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" ' +
+      'xmlns:xhtml="http://www.w3.org/1999/xhtml">\n' +
       urls.join('\n') +
       '\n</urlset>\n'
     );
   }
 }
 
+/**
+ * Una URL del mapa, con su hermana en el otro idioma.
+ *
+ * Cada direccion se declara dos veces —español e ingles— y cada una lleva
+ * dentro los `xhtml:link` que apuntan a la otra. Es lo que le dice a un
+ * buscador que no son dos paginas parecidas sino la misma en dos idiomas: sin
+ * eso, o indexa una sola o las trata como duplicadas.
+ *
+ * `x-default` apunta al español: es el mercado de la agencia y quien no encaja
+ * en ninguno de los dos idiomas acaba ahi.
+ */
 function entry(
   loc: string,
   lastmod: string,
   changefreq: string,
   priority: number,
 ): string {
-  return (
+  const ruta = loc.replace(/^https?:\/\/[^/]+/, '') || '/';
+  const base = loc.slice(0, loc.length - ruta.length);
+  const es = base + ruta;
+  const en = base + (ruta === '/' ? '/en' : `/en${ruta}`);
+
+  const alternativas = [
+    `<xhtml:link rel="alternate" hreflang="es" href="${escapeXml(es)}"/>`,
+    `<xhtml:link rel="alternate" hreflang="en" href="${escapeXml(en)}"/>`,
+    `<xhtml:link rel="alternate" hreflang="x-default" href="${escapeXml(es)}"/>`,
+  ].join('');
+
+  const una = (href: string) =>
     '  <url>' +
-    `<loc>${escapeXml(loc)}</loc>` +
+    `<loc>${escapeXml(href)}</loc>` +
     `<lastmod>${lastmod.slice(0, 10)}</lastmod>` +
     `<changefreq>${changefreq}</changefreq>` +
     `<priority>${priority.toFixed(1)}</priority>` +
-    '</url>'
-  );
+    alternativas +
+    '</url>';
+
+  return `${una(es)}\n${una(en)}`;
 }
 
 function escapeXml(value: string): string {

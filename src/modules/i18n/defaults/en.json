@@ -603,6 +603,8 @@
   "page.projects.seo.description": "New developments with units available in Bucaramanga and the metro area. Compare floor plans, square footage and starting prices.",
   "page.projects.seo.title": "New construction projects in Santander · {site}",
   "page.property.seo.description": "{type} in {place}{specs}. Schedule your showing online.",
+  "page.property.seo.head.cta": ". Schedule your tour online.",
+  "page.property.seo.head.place": "{type} in {place}",
   "page.property.seo.place": "Santander",
   "page.search.results.light": "Search",
   "page.search.results.strong": "results",
