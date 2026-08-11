@@ -19,6 +19,7 @@ import { CrmModule } from './modules/crm/crm.module';
 import { SchedulingModule } from './modules/scheduling/scheduling.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { PublicModule } from './modules/public/public.module';
+import { I18nModule } from './modules/i18n/i18n.module';
 import { PortalModule } from './modules/portal/portal.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
 
@@ -37,6 +38,7 @@ import { AssistantModule } from './modules/assistant/assistant.module';
     SchedulingModule,
     AnalyticsModule,
     PublicModule,
+    I18nModule,
     PortalModule,
     AssistantModule,
   ],
