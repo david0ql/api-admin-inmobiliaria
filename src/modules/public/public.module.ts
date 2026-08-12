@@ -1,3 +1,4 @@
+import { GeocodeService } from './geocode.service';
 import { ExchangeRateService } from './exchange-rate.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -60,6 +61,7 @@ import { CreditRequestsController } from './credit-requests.controller';
   ],
   providers: [
     ExchangeRateService,
+    GeocodeService,
     PublicService,
     CaptchaService,
     ConsignmentsService,

@@ -312,6 +312,62 @@ export class PublicService {
   }
 
   /**
+   * Los inmuebles mas cercanos a un punto.
+   *
+   * La distancia se calcula en SQL con la formula del semiverseno: son 642
+   * filas, cabe de sobra sin PostGIS, y traerlas todas al servidor para
+   * ordenarlas en memoria seria pagar la consulta entera para quedarse con
+   * seis.
+   *
+   * Se descartan los que no tienen coordenada: un inmueble sin punto no puede
+   * estar "cerca" de nada, y colarlo al final de la lista es prometer una
+   * cercania que nadie ha comprobado.
+   */
+  async nearby(lat: number, lng: number, limit = 6) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new BadRequestException('Coordenadas no válidas');
+    }
+
+    const distancia = `
+      6371 * acos(
+        least(1, greatest(-1,
+          cos(radians(:lat)) * cos(radians(property.latitude)) *
+          cos(radians(property.longitude) - radians(:lng)) +
+          sin(radians(:lat)) * sin(radians(property.latitude))
+        ))
+      )`;
+
+    const qb = this.properties
+      .createQueryBuilder('property')
+      .leftJoinAndSelect('property.propertyType', 'propertyType')
+      .leftJoinAndSelect('property.city', 'city')
+      .leftJoinAndSelect('property.zone', 'zone')
+      .leftJoinAndSelect('property.currency', 'currency')
+      .leftJoinAndSelect('property.images', 'image', 'image.is_main = true')
+      .addSelect(distancia, 'distancia_km')
+      .where('property.publication_status IN (:...visible)', {
+        visible: VISIBLE,
+      })
+      .andWhere('property.availability = :available', {
+        available: Availability.AVAILABLE,
+      })
+      .andWhere('property.latitude IS NOT NULL')
+      .andWhere('property.longitude IS NOT NULL')
+      .setParameters({ lat, lng })
+      .orderBy('distancia_km', 'ASC')
+      .limit(Math.min(24, Math.max(1, limit)));
+
+    const { entities, raw } = await qb.getRawAndEntities();
+
+    return entities.map((property, i) => ({
+      ...property,
+      distanceKm: Number(
+        (raw[i] as { distancia_km: string }).distancia_km,
+      ),
+    }));
+  }
+
+  /**
    * Cuantos inmuebles hay detras de cada opcion de los desplegables.
    *
    * Es lo que convierte el buscador en algo que se puede recorrer sin caer en

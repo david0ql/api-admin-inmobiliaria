@@ -27,6 +27,7 @@ import { PublicCache } from '../../shared/cache/public-cache.decorator';
 import { PublicCacheInterceptor } from '../../shared/cache/public-cache.interceptor';
 import { SearchPublicProjectsDto } from './dto/public-projects.dto';
 import { ExchangeRateService } from './exchange-rate.service';
+import { GeocodeService } from './geocode.service';
 import { SearchPublicPropertiesDto } from './dto/public-search.dto';
 
 /**
@@ -52,6 +53,7 @@ export class PublicController {
     private readonly credits: CreditRequestsService,
     private readonly homeSettings: HomeSettingsService,
     private readonly fx: ExchangeRateService,
+    private readonly geocode: GeocodeService,
   ) {}
 
   // --- inmuebles ---------------------------------------------------------
@@ -75,6 +77,40 @@ export class PublicController {
   })
   homeProjects() {
     return this.service.homeProjects(6);
+  }
+
+  /*
+    Los mas cercanos a donde esta quien mira. Sin cache: dos visitantes en
+    calles distintas no comparten respuesta, y la clave seria su coordenada
+    exacta —guardar eso en una cache es guardar donde vive cada uno.
+  */
+  /*
+    En que pais esta quien mira. Sin cache de respuesta: la clave seria su
+    coordenada, y eso no se guarda. El servicio de dentro si cachea, pero
+    redondeada a un kilometro.
+  */
+  @Get('geo/where')
+  @ApiOperation({
+    summary: 'Pais y ciudad de un punto',
+    description:
+      'Para saludar a quien llega de fuera. `null` si no se pudo averiguar: es un adorno y nunca frena la web.',
+  })
+  where(@Query('lat') lat: string, @Query('lng') lng: string) {
+    return this.geocode.where(Number(lat), Number(lng));
+  }
+
+  @Get('properties/near')
+  @ApiOperation({
+    summary: 'Inmuebles ordenados por cercania a un punto',
+    description:
+      'Solo publicados y disponibles, y solo los que tienen coordenada. Devuelve la distancia en kilometros.',
+  })
+  near(
+    @Query('lat') lat: string,
+    @Query('lng') lng: string,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+  ) {
+    return this.service.nearby(Number(lat), Number(lng), limit ?? 6);
   }
 
   @PublicCache(300)
