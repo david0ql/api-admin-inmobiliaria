@@ -66,6 +66,8 @@ interface SlotDay {
 export interface PropertyCardView {
   code: string;
   title: string;
+  typeId: number | null;
+  forRent: boolean;
   type: string | null;
   city: string | null;
   zone: string | null;
@@ -567,6 +569,13 @@ function cardView(p: Property): PropertyCardView {
   return {
     code: p.code,
     title: p.title,
+    /*
+      El identificador del tipo viaja con la tarjeta para que la web pueda
+      rehacer el titulo en ingles: el guardado esta en español y lleva dentro
+      el nombre del barrio, asi que no se traduce, se rearma.
+    */
+    typeId: p.propertyType?.id ?? null,
+    forRent: p.forRent,
     type: p.propertyType?.name ?? null,
     city: p.city?.name ?? null,
     zone: p.zone?.name ?? null,
