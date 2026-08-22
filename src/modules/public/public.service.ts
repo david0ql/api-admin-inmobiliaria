@@ -323,7 +323,7 @@ export class PublicService {
    * estar "cerca" de nada, y colarlo al final de la lista es prometer una
    * cercania que nadie ha comprobado.
    */
-  async nearby(lat: number, lng: number, limit = 6) {
+  async nearby(lat: number, lng: number, limit = 6, radiusKm?: number) {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       throw new BadRequestException('Coordenadas no válidas');
     }
@@ -355,7 +355,17 @@ export class PublicService {
       .andWhere('property.longitude IS NOT NULL')
       .setParameters({ lat, lng })
       .orderBy('distancia_km', 'ASC')
-      .limit(Math.min(24, Math.max(1, limit)));
+      .limit(Math.min(120, Math.max(1, limit)));
+
+    /*
+      Con radio, solo lo que cae dentro. Va en `having` y no en `where` porque
+      la distancia es una expresion del select: Postgres no deja filtrar por
+      un alias en el where, y repetir la formula entera seria tenerla escrita
+      dos veces y que un dia dejen de coincidir.
+    */
+    if (radiusKm && Number.isFinite(radiusKm)) {
+      qb.andWhere(`${distancia} <= :radio`, { radio: radiusKm });
+    }
 
     const { entities, raw } = await qb.getRawAndEntities();
 

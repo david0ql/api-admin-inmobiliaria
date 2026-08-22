@@ -109,8 +109,14 @@ export class PublicController {
     @Query('lat') lat: string,
     @Query('lng') lng: string,
     @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    @Query('radiusKm') radiusKm?: string,
   ) {
-    return this.service.nearby(Number(lat), Number(lng), limit ?? 6);
+    return this.service.nearby(
+      Number(lat),
+      Number(lng),
+      limit ?? 6,
+      radiusKm ? Number(radiusKm) : undefined,
+    );
   }
 
   @PublicCache(300)
