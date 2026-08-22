@@ -165,7 +165,18 @@ export class PublicService {
       .leftJoinAndSelect('property.zone', 'zone')
       .leftJoinAndSelect('property.currency', 'currency')
       .leftJoinAndSelect('property.family', 'family')
-      .leftJoinAndSelect('property.images', 'image', 'image.is_main = true')
+      /*
+        Las seis primeras fotos y no solo la portada: la tarjeta del listado y
+        la ficha del mapa pasan las fotos, y con una sola no hay carrusel que
+        valga. Seis porque es lo que alguien mira antes de decidir si entra, y
+        traer las veinte de cada inmueble multiplicaria por tres el peso de un
+        listado de doce.
+      */
+      .leftJoinAndSelect(
+        'property.images',
+        'image',
+        'image.position <= 6 OR image.is_main = true',
+      )
       .where('property.publication_status IN (:...visible)', {
         visible: VISIBLE,
       })
@@ -343,7 +354,18 @@ export class PublicService {
       .leftJoinAndSelect('property.city', 'city')
       .leftJoinAndSelect('property.zone', 'zone')
       .leftJoinAndSelect('property.currency', 'currency')
-      .leftJoinAndSelect('property.images', 'image', 'image.is_main = true')
+      /*
+        Las seis primeras fotos y no solo la portada: la tarjeta del listado y
+        la ficha del mapa pasan las fotos, y con una sola no hay carrusel que
+        valga. Seis porque es lo que alguien mira antes de decidir si entra, y
+        traer las veinte de cada inmueble multiplicaria por tres el peso de un
+        listado de doce.
+      */
+      .leftJoinAndSelect(
+        'property.images',
+        'image',
+        'image.position <= 6 OR image.is_main = true',
+      )
       .addSelect(distancia, 'distancia_km')
       .where('property.publication_status IN (:...visible)', {
         visible: VISIBLE,
@@ -354,6 +376,8 @@ export class PublicService {
       .andWhere('property.latitude IS NOT NULL')
       .andWhere('property.longitude IS NOT NULL')
       .setParameters({ lat, lng })
+      .addOrderBy('image.is_main', 'DESC')
+      .addOrderBy('image.position', 'ASC')
       .orderBy('distancia_km', 'ASC')
       .limit(Math.min(120, Math.max(1, limit)));
 
