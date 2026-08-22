@@ -806,10 +806,6 @@
   "search.zone.needsCity": "Elige ciudad",
   "site.description": "Apartamentos, casas y lotes en venta en Bucaramanga, Floridablanca, Girón y Piedecuesta. Más de 600 inmuebles con fotos, ubicación y visita agendable en línea.",
   "site.tagline": "Lideres en compra y venta de inmuebles en Colombia",
-  "switch.currency.aria": "Moneda en la que se ven los precios",
-  "switch.currency.rate": "US$1 = ${rate} · {source} del {date}",
-  "switch.currency.source.market": "tasa de mercado",
-  "switch.currency.source.trm": "TRM oficial",
   "switch.language.aria": "Idioma del sitio",
   "ui.close": "Cerrar"
 }

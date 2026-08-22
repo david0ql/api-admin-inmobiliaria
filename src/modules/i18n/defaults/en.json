@@ -806,10 +806,6 @@
   "search.zone.needsCity": "Choose a city",
   "site.description": "Apartments, houses and lots for sale in Bucaramanga, Floridablanca, Girón and Piedecuesta. Over 600 properties with photos, location and tours you can book online.",
   "site.tagline": "Leaders in buying and selling property in Colombia",
-  "switch.currency.aria": "Currency for prices",
-  "switch.currency.rate": "US$1 = ${rate} · {source}, {date}",
-  "switch.currency.source.market": "market rate",
-  "switch.currency.source.trm": "official TRM rate",
   "switch.language.aria": "Site language",
   "ui.close": "Close"
 }
