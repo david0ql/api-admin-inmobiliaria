@@ -1,3 +1,33 @@
+# API de Serrano Inmobiliaria
+
+## Antes de ejecutar nada que escriba en la base
+
+`api/.env` **no siempre apunta al Postgres del `docker-compose`**. En las
+maquinas de desarrollo de Serrano apunta a la base de PRODUCCION, para poder
+consultar datos reales sin montar nada. Eso significa que `yarn migration:run`
+y `yarn seed` escriben en la base viva de la inmobiliaria si no cambias nada
+antes. Ya ocurrio una vez: un `yarn seed` reescribio los catalogos con los
+valores del volcado de WASI —tildes, duplicados dados de baja que volvieron— y
+hubo que restaurarlos.
+
+Comprueba el destino antes, y no te fies del nombre de la variable:
+
+```bash
+grep -E '^DATABASE_(HOST|NAME)=' .env
+```
+
+Para trabajar en local, sobrescribe por delante del comando en vez de editar el
+fichero, y confirma que el override llego:
+
+```bash
+DATABASE_HOST=localhost DATABASE_NAME=serrano yarn migration:run
+```
+
+El sembrado ya no puede deshacer correcciones hechas a mano —solo inserta lo
+que falta— pero una migracion sigue escribiendo donde le digas.
+
+---
+
 <p align="center">
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
 </p>
