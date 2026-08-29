@@ -101,6 +101,19 @@ export class UnitTypes1786200000000 implements MigrationInterface {
     }[];
 
     for (const grupo of grupos) {
+      /*
+        Un sitio repetido no es siempre un proyecto. En "Carrera 5 #15-61" hay
+        cinco inmuebles y los cinco son distintos: un apartaestudio de 20 m²,
+        otro de 26, y apartamentos de 40, 52 y 67. Eso es un edificio viejo con
+        cinco pisos distintos, no un proyecto con tipologias, y forzarlo daria
+        cinco "tipologias" de una unidad cada una: renombrar, no agrupar.
+
+        La señal de que hay tipologias es que algo SE REPITA. Si ninguna unidad
+        se parece a otra, el grupo se queda como esta hoy: inmuebles sueltos.
+      */
+      const unidades = await this.unidadesDe(q, grupo.direccion, grupo.zone_id);
+      if (!agrupar(unidades).some((c) => c.length > 1)) continue;
+
       const nombre = `${grupo.address}${grupo.zona ? ` · ${grupo.zona}` : ''}`;
       const slug = await this.slugLibre(q, nombre);
 
@@ -128,6 +141,24 @@ export class UnitTypes1786200000000 implements MigrationInterface {
         [familia.id, grupo.direccion, grupo.zone_id],
       );
     }
+  }
+
+  /** Las unidades de un sitio todavia sin proyecto. */
+  private async unidadesDe(
+    q: QueryRunner,
+    direccion: string,
+    zoneId: number | null,
+  ): Promise<Unidad[]> {
+    return (await q.query(
+      `SELECT p.id, p.property_type_id, pt.name AS tipo, p.bedrooms, p.bathrooms,
+              p.garages, p.area::float AS area, p.built_area::float AS built
+       FROM "property" p
+       JOIN "property_type" pt ON pt.id = p.property_type_id
+       WHERE p.family_id IS NULL AND p.deleted_at IS NULL
+         AND lower(trim(p.address)) = $1
+         AND (p.zone_id = $2 OR ($2 IS NULL AND p.zone_id IS NULL))`,
+      [direccion, zoneId],
+    )) as Unidad[];
   }
 
   /** El slug tiene que ser único: dos edificios pueden llamarse igual. */
@@ -177,37 +208,18 @@ export class UnitTypes1786200000000 implements MigrationInterface {
                 p.garages, p.area::float AS area, p.built_area::float AS built
          FROM "property" p
          JOIN "property_type" pt ON pt.id = p.property_type_id
-         WHERE p.family_id = $1 AND p.deleted_at IS NULL
-         ORDER BY p.area NULLS LAST`,
+         WHERE p.family_id = $1 AND p.deleted_at IS NULL`,
         [familia.id],
-      )) as {
-        id: string;
-        property_type_id: number;
-        tipo: string;
-        bedrooms: number | null;
-        bathrooms: number | null;
-        garages: number | null;
-        area: number | null;
-        built: number | null;
-      }[];
+      )) as Unidad[];
 
-      const grupos = new Map<string, typeof unidades>();
-
-      for (const unidad of unidades) {
-        const clave = esSuelo(unidad.tipo)
-          ? `SUELO|${unidad.property_type_id}|${tramo(unidad.area)}`
-          : `HAB|${unidad.property_type_id}|${unidad.bedrooms ?? 0}|${unidad.bathrooms ?? 0}|${redondear(unidad.area)}`;
-        const previo = grupos.get(clave) ?? [];
-        previo.push(unidad);
-        grupos.set(clave, previo);
-      }
+      const grupos = agrupar(unidades);
 
       let posicion = 0;
       let letra = 0;
       let numeroSuelo = 0;
 
-      for (const [clave, miembros] of grupos) {
-        const suelo = clave.startsWith('SUELO');
+      for (const miembros of grupos) {
+        const suelo = esSuelo(miembros[0].tipo);
         const areas = miembros
           .map((m) => m.area)
           .filter((a): a is number => typeof a === 'number' && a > 0);
@@ -218,7 +230,7 @@ export class UnitTypes1786200000000 implements MigrationInterface {
         const code = suelo ? `L${++numeroSuelo}` : letraDe(letra++);
         const nombre = suelo
           ? `${primero.tipo} ${etiquetaTramo(min, max)}`
-          : `Tipo ${code} · ${describir(primero.bedrooms, min)}`;
+          : `Tipo ${code} · ${describir(primero.bedrooms, min, max)}`;
 
         const [tipologia] = (await q.query(
           `INSERT INTO "unit_type"
@@ -259,15 +271,72 @@ export class UnitTypes1786200000000 implements MigrationInterface {
   }
 }
 
+interface Unidad {
+  id: string;
+  property_type_id: number;
+  tipo: string;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  garages: number | null;
+  area: number | null;
+  built: number | null;
+}
+
 /** Suelo: lo que se vende por metros y no por habitaciones. */
 function esSuelo(tipo: string): boolean {
   return /lote|terreno|finca|isla|chacra|campos/i.test(tipo);
 }
 
-/** Tramos de 250 m², que es como se habla de un lote en esta ciudad. */
-function tramo(area: number | null): number {
-  if (!area || area <= 0) return 0;
-  return Math.floor(area / 250);
+/**
+ * Las unidades que un comprador vería como la misma.
+ *
+ * Se parte por lo que no admite discusion —tipo de inmueble, y alcobas y baños
+ * si es habitable— y dentro de cada parte se agrupan las areas CERCANAS, no
+ * las iguales: en "Calle 35 #24-24" hay apartamentos de 73, 75 y 85 m² con las
+ * mismas alcobas, y 73 y 75 son el mismo apartamento medido dos veces, 85 no.
+ * Redondear no vale, porque cualquier redondeo tiene un borde y 73 y 75 caen a
+ * cada lado del suyo. Se compara con el menor del grupo y se abre uno nuevo al
+ * separarse mas de la tolerancia.
+ *
+ * El suelo va mas suelto —40%— porque se vende por magnitud: un lote de 600 m²
+ * y otro de 800 son lo mismo para quien busca, y 1.400 ya es otra cosa.
+ */
+function agrupar(unidades: Unidad[]): Unidad[][] {
+  const partes = new Map<string, Unidad[]>();
+  for (const unidad of unidades) {
+    const clave = esSuelo(unidad.tipo)
+      ? `S|${unidad.property_type_id}`
+      : `H|${unidad.property_type_id}|${unidad.bedrooms ?? 0}|${unidad.bathrooms ?? 0}`;
+    partes.set(clave, [...(partes.get(clave) ?? []), unidad]);
+  }
+
+  const grupos: Unidad[][] = [];
+  for (const [clave, miembros] of partes) {
+    const tolerancia = clave.startsWith('S') ? 0.4 : 0.1;
+    const conArea = miembros
+      .filter((m) => typeof m.area === 'number' && m.area > 0)
+      .sort((a, b) => (a.area ?? 0) - (b.area ?? 0));
+    const sinArea = miembros.filter(
+      (m) => !(typeof m.area === 'number' && m.area > 0),
+    );
+
+    let actual: Unidad[] = [];
+    for (const unidad of conArea) {
+      const menor = actual[0]?.area ?? 0;
+      if (actual.length && (unidad.area as number) > menor * (1 + tolerancia)) {
+        grupos.push(actual);
+        actual = [];
+      }
+      actual.push(unidad);
+    }
+    if (actual.length) grupos.push(actual);
+    // Las que no tienen area no se pueden comparar: van juntas y aparte.
+    if (sinArea.length) grupos.push(sinArea);
+  }
+
+  // Primero las que mas unidades tienen: es el orden en que la agencia las
+  // enseña y el que hace que A sea la tipologia principal del proyecto.
+  return grupos.sort((a, b) => b.length - a.length || (a[0].area ?? 0) - (b[0].area ?? 0));
 }
 
 function etiquetaTramo(min: number | null, max: number | null): string {
@@ -277,16 +346,15 @@ function etiquetaTramo(min: number | null, max: number | null): string {
   return desde === hasta ? `${desde} m²` : `${desde} – ${hasta} m²`;
 }
 
-/** A la decena: 58 y 58,4 m² son la misma tipologia, no dos. */
-function redondear(area: number | null): number {
-  if (!area || area <= 0) return 0;
-  return Math.round(area / 10) * 10;
-}
-
-function describir(bedrooms: number | null, area: number | null): string {
+function describir(
+  bedrooms: number | null,
+  min: number | null,
+  max: number | null,
+): string {
   const partes: string[] = [];
-  if (bedrooms) partes.push(`${bedrooms} ${bedrooms === 1 ? 'alcoba' : 'alcobas'}`);
-  if (area) partes.push(`${Math.round(area)} m²`);
+  if (bedrooms)
+    partes.push(`${bedrooms} ${bedrooms === 1 ? 'alcoba' : 'alcobas'}`);
+  if (min) partes.push(etiquetaTramo(min, max));
   return partes.join(' · ') || 'sin datos';
 }
 
