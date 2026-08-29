@@ -154,7 +154,7 @@ export class AgentsService {
       ),
       mustSetPassword: !dto.password,
     });
-    return this.repo.save(agent);
+    return sinSecreto(await this.repo.save(agent));
   }
 
   /**
@@ -209,7 +209,7 @@ export class AgentsService {
      * el mismo mensaje que si hubiera llegado el segundo, no un 500.
      */
     try {
-      return await this.repo.save(agent);
+      return sinSecreto(await this.repo.save(agent));
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new ConflictException(
@@ -264,7 +264,7 @@ export class AgentsService {
       file.originalname,
     );
     agent.photoUrl = stored.url;
-    return this.repo.save(agent);
+    return sinSecreto(await this.repo.save(agent));
   }
 
   async deactivate(id: string): Promise<Agent> {
@@ -280,7 +280,7 @@ export class AgentsService {
       }
     }
     agent.status = AgentStatus.INACTIVE;
-    return this.repo.save(agent);
+    return sinSecreto(await this.repo.save(agent));
   }
 
   async touchLogin(id: string): Promise<void> {
@@ -342,6 +342,24 @@ export class AgentsService {
   async countShifts(): Promise<number> {
     return this.shifts.count();
   }
+}
+
+/**
+ * La ficha sin el hash de la contrasena.
+ *
+ * `passwordHash` es `select: false`, asi que las CONSULTAS nunca lo traen. Las
+ * escrituras si: `create` se lo pone a mano para guardarlo, y lo que devuelve
+ * `save` es ese mismo objeto — con lo cual dar de alta a alguien respondia con
+ * su hash de argon2 dentro. No sirve de mucho para entrar, pero es material
+ * para atacarlo sin prisa y con el ordenador de otro, y no tiene ningun motivo
+ * para salir del servidor.
+ *
+ * Se borra del objeto directamente: el que devuelve `save` es de usar y tirar,
+ * TypeORM no lo reutiliza entre peticiones.
+ */
+function sinSecreto(agent: Agent): Agent {
+  delete (agent as { passwordHash?: string | null }).passwordHash;
+  return agent;
 }
 
 /**
