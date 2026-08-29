@@ -34,7 +34,7 @@ export class AgentsController {
 
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.agents.findById(id);
+    return this.agents.findVisible(id);
   }
 
   @Post()

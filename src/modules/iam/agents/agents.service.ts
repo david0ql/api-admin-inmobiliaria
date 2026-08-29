@@ -59,6 +59,29 @@ export class AgentsService {
     return agent;
   }
 
+  /**
+   * La ficha de un usuario, con la sede por delante.
+   *
+   * `findById` no comprueba sede a proposito: lo usan la autenticacion —que
+   * ocurre antes de que exista sede— y las asignaciones internas, que ya
+   * comprueban con `assertSameBranch` justo despues. Pero la ruta del panel si
+   * tiene que negarse: sin esto, un coordinador que supiera un identificador
+   * leia el nombre, el correo y el telefono de alguien de otra oficina.
+   *
+   * Se responde 404 y no 403: confirmar que ese identificador existe ya es
+   * decir algo de la otra sede.
+   */
+  async findVisible(id: string): Promise<Agent> {
+    const agent = await this.findById(id);
+    const branchId = RequestContext.branchId();
+
+    if (branchId && agent.branchId && agent.branchId !== branchId) {
+      throw new NotFoundException(`Asesor ${id} no encontrado`);
+    }
+
+    return agent;
+  }
+
   /** Incluye el hash de contrasena, excluido por defecto del select. */
   async findByEmailWithSecret(email: string): Promise<Agent | null> {
     return this.repo
