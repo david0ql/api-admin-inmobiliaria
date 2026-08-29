@@ -751,7 +751,12 @@ export class PublicService {
           .filter((p): p is number => p !== null);
         return {
           ...family,
-          unitTypeCount: unitTypes.length,
+          /*
+            Las unidades sin tipologia cuentan como unidades pero no como
+            tipologia: la tarjeta diria "6 tipologias" en un proyecto de cinco
+            solo porque hay un apartamento que nadie ha clasificado todavia.
+          */
+          unitTypeCount: unitTypes.filter((u) => u.id !== null).length,
           availableUnits: unitTypes.reduce((sum, u) => sum + u.available, 0),
           fromPrice: prices.length ? Math.min(...prices) : null,
         };
