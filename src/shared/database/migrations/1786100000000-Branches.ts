@@ -51,12 +51,27 @@ export class Branches1786100000000 implements MigrationInterface {
       `SELECT id FROM "branch" WHERE is_default = true LIMIT 1`,
     )) as { id: string }[];
 
-    // El rol nuevo tiene que existir antes de que nadie lo lleve.
-    for (const rol of ['DIRECTOR', 'COORDINATOR']) {
-      await q.query(
-        `ALTER TYPE "agent_role_enum" ADD VALUE IF NOT EXISTS '${rol}'`,
-      );
-    }
+    /*
+      Los roles nuevos, cambiando el tipo entero en vez de añadirle valores.
+
+      `ALTER TYPE ... ADD VALUE` parece lo obvio, pero Postgres no deja USAR un
+      valor añadido hasta que termina la transaccion que lo añadio, y TypeORM
+      corre todas las migraciones dentro de una sola: la siguiente migracion
+      —la que reparte los roles— fallaba con "unsafe use of new value". Crear
+      el tipo nuevo y convertir la columna no tiene esa limitacion.
+    */
+    await q.query(`ALTER TYPE "agent_role_enum" RENAME TO "agent_role_enum_old"`);
+    await q.query(
+      `CREATE TYPE "agent_role_enum" AS ENUM ('ADMIN', 'DIRECTOR', 'COORDINATOR', 'MANAGER', 'AGENT', 'VIEWER')`,
+    );
+    await q.query(`ALTER TABLE "agent" ALTER COLUMN "role" DROP DEFAULT`);
+    await q.query(
+      `ALTER TABLE "agent" ALTER COLUMN "role" TYPE "agent_role_enum" USING "role"::text::"agent_role_enum"`,
+    );
+    await q.query(
+      `ALTER TABLE "agent" ALTER COLUMN "role" SET DEFAULT 'AGENT'`,
+    );
+    await q.query(`DROP TYPE "agent_role_enum_old"`);
 
     const tablas = [
       'agent',
