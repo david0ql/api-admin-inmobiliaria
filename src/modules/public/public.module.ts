@@ -72,6 +72,9 @@ import { CreditRequestsController } from './credit-requests.controller';
   ],
   exports: [
     PublicService,
+    // Lo usa el control de asistencia para resolver la direccion de cada
+    // fichaje: la misma geocodificacion inversa, no una segunda.
+    GeocodeService,
     ConsignmentsService,
     CreditRequestsService,
     // Lo usa el registro del portal: un alta abierta sin captcha se llena de

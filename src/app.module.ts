@@ -24,6 +24,7 @@ import { BranchesModule } from './modules/branches/branches.module';
 import { BranchScopeInterceptor } from './modules/iam/branch-scope.interceptor';
 import { PortalModule } from './modules/portal/portal.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
+import { AttendanceModule } from './modules/attendance/attendance.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { AssistantModule } from './modules/assistant/assistant.module';
     BranchesModule,
     PortalModule,
     AssistantModule,
+    AttendanceModule,
   ],
   controllers: [HealthController],
   providers: [

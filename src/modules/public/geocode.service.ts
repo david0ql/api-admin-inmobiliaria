@@ -76,4 +76,67 @@ export class GeocodeService {
       return null;
     }
   }
+
+  /**
+   * La direccion legible de un punto, para guardarla junto a un fichaje.
+   *
+   * Se separa de `where` porque las dos preguntas no son la misma: `where`
+   * quiere el pais y redondea a un kilometro a proposito —para saber en que
+   * pais estas sobra esa precision, y guardar la posicion exacta de un
+   * visitante en una cache es guardar donde vive—. Aqui la coordenada exacta
+   * ya se esta guardando porque es el objeto del fichaje, y lo que hace falta
+   * es el barrio y la ciudad, que a un kilometro de resolucion ya no salen.
+   *
+   * Tampoco cachea: son cuatro llamadas por persona y dia, y una cache
+   * acabaria pegando la direccion de una marca a la de otra persona cercana.
+   *
+   * Devuelve null si el servicio no responde. El fichaje se guarda igual: el
+   * texto es un adorno del mapa —las coordenadas ya estan— y perder la entrada
+   * de alguien porque un tercero fallo no es una opcion.
+   */
+  async address(lat: number, lng: number): Promise<string | null> {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+    try {
+      const respuesta = await fetch(
+        `${SERVICIO}?latitude=${lat}&longitude=${lng}&localityLanguage=es`,
+        { signal: AbortSignal.timeout(4_000) },
+      );
+      if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
+
+      const datos = (await respuesta.json()) as {
+        locality?: string;
+        city?: string;
+        principalSubdivision?: string;
+        countryName?: string;
+      };
+
+      /*
+        De lo mas fino a lo mas grueso, sin repetir: en Bucaramanga `city` y
+        `locality` suelen traer lo mismo, y "Bucaramanga, Bucaramanga,
+        Santander" no le dice nada a nadie.
+      */
+      const partes: string[] = [];
+      for (const parte of [
+        datos.locality,
+        datos.city,
+        datos.principalSubdivision,
+        datos.countryName,
+      ]) {
+        const texto = parte?.trim();
+        if (
+          texto &&
+          !partes.some((p) => p.toLowerCase() === texto.toLowerCase())
+        )
+          partes.push(texto);
+      }
+
+      return partes.length ? partes.join(', ').slice(0, 300) : null;
+    } catch (error) {
+      this.logger.warn(
+        `Direccion inversa para el fichaje: ${(error as Error).message}`,
+      );
+      return null;
+    }
+  }
 }
