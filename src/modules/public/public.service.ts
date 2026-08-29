@@ -26,6 +26,7 @@ import {
   PublicationStatus,
 } from '../properties/domain/property.enums';
 import { FamiliesService } from '../properties/families.service';
+import { UnitTypesService } from '../properties/unit-types.service';
 import { normalizePhone } from '../crm/clients.service';
 import {
   Appointment,
@@ -135,6 +136,7 @@ export class PublicService {
     @InjectRepository(ConsignmentRequest)
     private readonly consignments: Repository<ConsignmentRequest>,
     private readonly familiesService: FamiliesService,
+    private readonly unitTypesService: UnitTypesService,
     private readonly availability: AvailabilityService,
     private readonly bookingSettings: BookingSettingsService,
     private readonly pipelines: PipelinesService,
@@ -395,9 +397,7 @@ export class PublicService {
 
     return entities.map((property, i) => ({
       ...property,
-      distanceKm: Number(
-        (raw[i] as { distancia_km: string }).distancia_km,
-      ),
+      distanceKm: Number((raw[i] as { distancia_km: string }).distancia_km),
     }));
   }
 
@@ -743,7 +743,7 @@ export class PublicService {
     // para la pagina que se devuelve, no para el catalogo entero.
     const data = await Promise.all(
       families.map(async (family) => {
-        const unitTypes = await this.familiesService.unitTypes(family.id, {
+        const unitTypes = await this.unitTypesService.summaries(family.id, {
           publicOnly: true,
         });
         const prices = unitTypes
@@ -767,7 +767,7 @@ export class PublicService {
       throw new NotFoundException(`Proyecto "${slug}" no encontrado`);
 
     const [unitTypes, properties] = await Promise.all([
-      this.familiesService.unitTypes(family.id, { publicOnly: true }),
+      this.unitTypesService.summaries(family.id, { publicOnly: true }),
       this.familiesService.propertiesOf(family.id, {
         publicOnly: true,
         allImages: true,

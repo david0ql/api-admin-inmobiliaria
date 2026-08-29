@@ -74,15 +74,33 @@ export class UnitType extends BaseEntity {
     el octavo. Para suelo, el rango ES la tipologia.
   */
   @ApiPropertyOptional({ nullable: true })
-  @Column({ name: 'area_min', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  @Column({
+    name: 'area_min',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
   areaMin: string | null;
 
   @ApiPropertyOptional({ nullable: true })
-  @Column({ name: 'area_max', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  @Column({
+    name: 'area_max',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
   areaMax: string | null;
 
   @ApiPropertyOptional({ nullable: true })
-  @Column({ name: 'built_area', type: 'numeric', precision: 12, scale: 2, nullable: true })
+  @Column({
+    name: 'built_area',
+    type: 'numeric',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+  })
   builtArea: string | null;
 
   /** El orden en que la agencia quiere enseñarlas. */

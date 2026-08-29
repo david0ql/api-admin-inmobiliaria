@@ -250,7 +250,24 @@ export class CreatePropertyDto {
   featureIds?: number[];
 }
 
-export class UpdatePropertyDto extends PartialType(CreatePropertyDto) {}
+export class UpdatePropertyDto extends PartialType(CreatePropertyDto) {
+  /*
+    Solo al actualizar: al crear el inmueble todavia no tiene proyecto —eso se
+    hace con PATCH /properties/:id/family— y una tipologia sin proyecto no
+    existe.
+  */
+  @ApiPropertyOptional({
+    format: 'uuid',
+    nullable: true,
+    description:
+      'Tipología dentro de su proyecto. Null la quita. Tiene que ser una del ' +
+      'mismo proyecto que el inmueble.',
+  })
+  @IsOptional()
+  @ValidateIf((dto: UpdatePropertyDto) => dto.unitTypeId !== null)
+  @IsUUID()
+  unitTypeId?: string | null;
+}
 
 export class AssignPropertyDto {
   @ApiProperty({ format: 'uuid' })

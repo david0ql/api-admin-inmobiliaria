@@ -34,6 +34,7 @@ import {
   UpdatePropertyDto,
 } from './dto/property.dto';
 import { SearchPropertiesDto } from './dto/search-properties.dto';
+import { UnitTypesService } from './unit-types.service';
 import {
   applyPropertyFilters,
   applyPropertySort,
@@ -53,6 +54,7 @@ export class PropertiesService {
     private readonly catalog: CatalogService,
     private readonly agents: AgentsService,
     private readonly storage: StorageService,
+    private readonly unitTypes: UnitTypesService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -73,6 +75,7 @@ export class PropertiesService {
       // `family` es eager en la entidad, pero el QueryBuilder ignora eso: sin
       // este join el inmueble sale siempre como suelto aunque tenga proyecto.
       .leftJoinAndSelect('property.family', 'family')
+      .leftJoinAndSelect('property.unitType', 'unitType')
       // Solo la portada: traer las 6.340 imagenes en un listado seria absurdo.
       .leftJoinAndSelect(
         'property.images',
@@ -106,6 +109,7 @@ export class PropertiesService {
       .leftJoinAndSelect('property.label', 'label')
       .leftJoinAndSelect('property.assignedAgent', 'assignedAgent')
       .leftJoinAndSelect('property.family', 'family')
+      .leftJoinAndSelect('property.unitType', 'unitType')
       .leftJoinAndSelect('property.features', 'features')
       .leftJoinAndSelect('property.images', 'images')
       .where('property.id = :id', { id })
@@ -219,8 +223,21 @@ export class PropertiesService {
       featureIds: dto.featureIds,
     });
 
-    const { featureIds, assignedAgentId, branchId, ...rest } = dto;
+    const { featureIds, assignedAgentId, branchId, unitTypeId, ...rest } = dto;
     Object.assign(property, rest);
+
+    /*
+      La tipologia tiene que ser del MISMO proyecto que el inmueble. Nada en la
+      base lo impide —la clave foranea solo mira que exista— y ponerle a un
+      apartamento el "Tipo A" de otro edificio dejaria su ficha enseñando un
+      plano que no es suyo. `undefined` es "no lo toques"; `null`, "quitasela".
+    */
+    if (unitTypeId !== undefined) {
+      property.unitTypeId = await this.unitTypes.resolveForProperty(
+        unitTypeId,
+        property.familyId,
+      );
+    }
 
     // Cambiar de sede es mover el inmueble de oficina, no editar un campo: solo
     // lo hace quien las ve todas, y hacia una sede que exista de verdad.

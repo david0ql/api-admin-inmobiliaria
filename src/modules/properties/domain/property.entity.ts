@@ -21,6 +21,7 @@ import {
 import { PropertyImage } from './property-image.entity';
 import { PropertyLabel } from './property-label.entity';
 import { PropertyFamily } from './property-family.entity';
+import { UnitType } from './unit-type.entity';
 import {
   Availability,
   MapPublication,
@@ -351,10 +352,26 @@ export class Property extends BaseEntity {
   @Column({ name: 'family_id', type: 'uuid', nullable: true })
   familyId: string | null;
 
-  /** Nombre de la tipologia dentro del proyecto: "Tipo A", "Esquinero". */
+  /**
+   * Tipologia del proyecto a la que pertenece: el "Tipo A" del que hay veinte
+   * iguales.
+   *
+   * Antes era texto libre en el propio inmueble y estaba vacio en los 642, de
+   * modo que la ficha de proyecto agrupaba por nada. Ahora apunta a una fila de
+   * `unit_type` que la agencia escribe una vez y comparten todas sus unidades.
+   */
+  @ManyToOne(() => UnitType, {
+    nullable: true,
+    eager: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'unit_type_id' })
+  unitType: UnitType | null;
+
   @ApiPropertyOptional({ nullable: true })
-  @Column({ type: 'varchar', length: 120, nullable: true })
-  unitType: string | null;
+  @Index('IDX_property_unit_type')
+  @Column({ name: 'unit_type_id', type: 'uuid', nullable: true })
+  unitTypeId: string | null;
 
   // --- responsable -------------------------------------------------------
 

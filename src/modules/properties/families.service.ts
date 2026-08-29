@@ -24,19 +24,6 @@ import type {
   UpdateFamilyDto,
 } from './dto/family.dto';
 
-/** Tipología: una forma de unidad dentro del proyecto, con su rango. */
-export interface UnitTypeSummary {
-  unitType: string | null;
-  propertyType: string;
-  units: number;
-  available: number;
-  minArea: number | null;
-  maxArea: number | null;
-  bedrooms: number | null;
-  minPrice: number | null;
-  maxPrice: number | null;
-}
-
 @Injectable()
 export class FamiliesService {
   constructor(
@@ -127,12 +114,12 @@ export class FamiliesService {
     id: string,
     { publicOnly = false, allImages = false } = {},
   ): Promise<Property[]> {
-    const family = await this.findById(id);
-    const ids = (await this.tree.findDescendants(family)).map((f) => f.id);
+    const ids = await this.descendantIds(id);
 
     const qb = this.properties
       .createQueryBuilder('property')
       .leftJoinAndSelect('property.propertyType', 'propertyType')
+      .leftJoinAndSelect('property.unitType', 'unitType')
       .leftJoinAndSelect('property.city', 'city')
       .leftJoinAndSelect('property.zone', 'zone')
       .leftJoinAndSelect('property.currency', 'currency')
@@ -145,9 +132,7 @@ export class FamiliesService {
         'images',
         allImages ? undefined : 'images.is_main = true',
       )
-      .where('property.family_id IN (:...ids)', {
-        ids: ids.length ? ids : [family.id],
-      });
+      .where('property.family_id IN (:...ids)', { ids });
 
     // La web publica ensena el proyecto entero; el panel, solo lo de su sede.
     if (!publicOnly) applyBranchScope(qb, 'property.branch_id');
@@ -171,63 +156,16 @@ export class FamiliesService {
   }
 
   /**
-   * Tipologías disponibles: agrupa las unidades del proyecto por forma y tipo,
-   * con su rango de área y precio.
+   * El proyecto y sus etapas, como lista de ids.
    *
-   * Es lo que se enseña en la ficha de un proyecto — nadie quiere ver veinte
-   * apartamentos casi iguales, quiere ver "Tipo A, 3 alcobas, 78–84 m², desde
-   * $320 M" y elegir.
+   * Todo lo que se pregunta de un proyecto —sus inmuebles, sus tipologías— se
+   * pregunta tambien de sus torres: `findById` acota por sede antes, de modo
+   * que un proyecto de otra oficina no llega a devolver ids.
    */
-  async unitTypes(
-    id: string,
-    { publicOnly = false } = {},
-  ): Promise<UnitTypeSummary[]> {
+  async descendantIds(id: string): Promise<string[]> {
     const family = await this.findById(id);
     const ids = (await this.tree.findDescendants(family)).map((f) => f.id);
-
-    const qb = this.properties
-      .createQueryBuilder('property')
-      .innerJoin('property.propertyType', 'propertyType')
-      .select('property.unit_type', 'unitType')
-      .addSelect('propertyType.name', 'propertyType')
-      .addSelect('property.bedrooms', 'bedrooms')
-      .addSelect('COUNT(*)::int', 'units')
-      .addSelect(
-        `COUNT(*) FILTER (WHERE property.availability = '${Availability.AVAILABLE}')::int`,
-        'available',
-      )
-      .addSelect('MIN(property.area)', 'minArea')
-      .addSelect('MAX(property.area)', 'maxArea')
-      .addSelect('MIN(NULLIF(property.sale_price, 0))', 'minPrice')
-      .addSelect('MAX(NULLIF(property.sale_price, 0))', 'maxPrice')
-      .where('property.family_id IN (:...ids)', {
-        ids: ids.length ? ids : [family.id],
-      })
-      .groupBy('property.unit_type')
-      .addGroupBy('propertyType.name')
-      .addGroupBy('property.bedrooms')
-      .orderBy('"minArea"', 'ASC');
-
-    if (!publicOnly) applyBranchScope(qb, 'property.branch_id');
-
-    if (publicOnly) {
-      qb.andWhere('property.publication_status IN (:...visible)', {
-        visible: [PublicationStatus.ACTIVE, PublicationStatus.OUTSTANDING],
-      });
-    }
-
-    const rows = await qb.getRawMany<Record<string, string | number | null>>();
-    return rows.map((row) => ({
-      unitType: (row.unitType as string) ?? null,
-      propertyType: String(row.propertyType),
-      units: Number(row.units),
-      available: Number(row.available),
-      minArea: num(row.minArea),
-      maxArea: num(row.maxArea),
-      bedrooms: row.bedrooms === null ? null : Number(row.bedrooms),
-      minPrice: num(row.minPrice),
-      maxPrice: num(row.maxPrice),
-    }));
+    return ids.length ? ids : [family.id];
   }
 
   /**
@@ -345,11 +283,17 @@ export class FamiliesService {
     await this.repo.softDelete(id);
   }
 
-  /** Asigna o desvincula un inmueble de un proyecto. */
+  /**
+   * Asigna o desvincula un inmueble de un proyecto.
+   *
+   * La tipología no se toca aquí, se pone luego con `PATCH /properties/:id`:
+   * cambiar de proyecto la invalida siempre —el "Tipo A" es del edificio, no
+   * del apartamento— asi que se limpia, y dejarla puesta seria enseñar en la
+   * ficha el plano de otro conjunto.
+   */
   async assignProperty(
     propertyId: string,
     familyId: string | null,
-    unitType?: string | null,
   ): Promise<void> {
     // `findById` ya acota por sede: colgar un inmueble de un proyecto de otra
     // oficina devuelve "no encontrado" y no un enlace cruzado.
@@ -366,7 +310,7 @@ export class FamiliesService {
 
     await this.properties.update(
       { id: propertyId },
-      { familyId, unitType: unitType?.trim() || null },
+      { familyId, unitTypeId: null },
     );
   }
 
@@ -409,12 +353,6 @@ function podar(familias: PropertyFamily[], branchId: string): PropertyFamily[] {
       familia.children = podar(familia.children ?? [], branchId);
       return familia;
     });
-}
-
-function num(value: string | number | null | undefined): number | null {
-  if (value === null || value === undefined) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 /** "Reserva de la Loma" -> "reserva-de-la-loma". */

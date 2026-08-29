@@ -124,15 +124,6 @@ export class AssignFamilyDto {
   @IsOptional()
   @IsUUID()
   familyId?: string | null;
-
-  @ApiPropertyOptional({
-    example: 'Tipo A',
-    description: 'Tipología dentro del proyecto',
-  })
-  @IsOptional()
-  @IsString()
-  @Length(1, 120)
-  unitType?: string;
 }
 
 export class SearchFamiliesDto {

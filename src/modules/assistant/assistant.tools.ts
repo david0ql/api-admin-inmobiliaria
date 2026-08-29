@@ -646,7 +646,7 @@ function fullView(p: PublicProperty) {
       : null,
     anoConstruccion: p.buildingYear,
     proyecto: p.family
-      ? { nombre: p.family.name, tipologia: p.unitType ?? null }
+      ? { nombre: p.family.name, tipologia: p.unitType?.name ?? null }
       : null,
     caracteristicas: (p.features ?? []).map((f) => f.name),
     totalFotos: p.images?.length ?? 0,

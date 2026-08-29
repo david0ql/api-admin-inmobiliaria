@@ -61,17 +61,6 @@ export class FamiliesController {
     return this.families.propertiesOf(id);
   }
 
-  @Get('families/:id/unit-types')
-  @ApiOperation({
-    summary: 'Tipologías del proyecto',
-    description:
-      'Agrupa las unidades por forma y tipo con su rango de área y precio: ' +
-      '"Tipo A, 3 alcobas, 78–84 m², desde $320 M".',
-  })
-  unitTypes(@Param('id', ParseUUIDPipe) id: string) {
-    return this.families.unitTypes(id);
-  }
-
   @Post('families')
   @Roles(Role.ADMIN, Role.MANAGER)
   @ApiOperation({
@@ -101,9 +90,12 @@ export class FamiliesController {
   @HttpCode(204)
   @ApiOperation({
     summary: 'Asigna el inmueble a un proyecto (o lo desvincula)',
+    description:
+      'La tipología se pone después con PATCH /properties/:id: al cambiar de ' +
+      'proyecto se limpia, porque pertenece al proyecto que se deja atrás.',
   })
   assign(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AssignFamilyDto) {
-    return this.families.assignProperty(id, dto.familyId ?? null, dto.unitType);
+    return this.families.assignProperty(id, dto.familyId ?? null);
   }
 
   @Get('properties/:id/siblings')
