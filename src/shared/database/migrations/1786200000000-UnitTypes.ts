@@ -67,54 +67,48 @@ export class UnitTypes1786200000000 implements MigrationInterface {
   /**
    * Un proyecto por cada sitio repetido.
    *
-   * "El mismo lugar" se decide por barrio + dirección exacta, que es lo único
-   * fiable que hay: el título lleva el nombre del conjunto pero escrito a mano
-   * y de tres formas distintas. Con dos inmuebles basta —dos apartamentos en
-   * la misma dirección son el mismo edificio— y el nombre sale del conjunto
-   * que aparece en el título, o de la dirección si no se puede sacar.
+   * "El mismo lugar" se decide por barrio + dirección, que es lo único fiable
+   * que hay: el título lleva el nombre del conjunto pero escrito a mano y de
+   * tres formas distintas. Con dos inmuebles basta: dos apartamentos en la
+   * misma dirección son el mismo edificio.
+   *
+   * La dirección tampoco viene limpia, asi que no se compara el texto sino su
+   * forma canónica (ver `canonica`): "Carrera 18 #4-23", "Carrera 18 #4 23" y
+   * "Cra 18 #4-23" son el mismo portal escrito por tres personas distintas.
+   *
+   * El agrupado se hace aqui y no en SQL para que la clave que decide el grupo
+   * y la que decide qué inmuebles se actualizan sean literalmente la misma:
+   * cuando eran dos consultas separadas bastaba una diferencia de criterio
+   * entre ellas para meter un inmueble en un proyecto y dejarlo sin tipologia.
    */
   private async agruparPorSitio(q: QueryRunner): Promise<void> {
-    const grupos = (await q.query(`
-      SELECT p.zone_id,
-             lower(trim(p.address)) AS direccion,
-             count(*)::int AS n,
-             min(p.branch_id::text) AS branch_id,
-             min(p.city_id) AS city_id,
-             min(p.address) AS address,
-             min(z.name) AS zona
+    const candidatos = (await q.query(`
+      SELECT p.id, p.zone_id, p.address, p.branch_id::text AS branch_id,
+             p.city_id, z.name AS zona,
+             p.property_type_id, pt.name AS tipo, p.bedrooms, p.bathrooms,
+             p.garages, p.area::float AS area, p.built_area::float AS built
       FROM property p
+      JOIN property_type pt ON pt.id = p.property_type_id
       LEFT JOIN zone z ON z.id = p.zone_id
       WHERE p.deleted_at IS NULL
         AND p.family_id IS NULL
         AND p.address IS NOT NULL
         AND length(trim(p.address)) > 4
-      GROUP BY p.zone_id, lower(trim(p.address))
-      HAVING count(*) > 1
-    `)) as {
-      zone_id: number | null;
-      direccion: string;
-      n: number;
-      branch_id: string;
-      city_id: number;
-      address: string;
-      zona: string | null;
-    }[];
+    `)) as Candidato[];
 
-    for (const grupo of grupos) {
-      /*
-        Un sitio repetido no es siempre un proyecto. En "Carrera 5 #15-61" hay
-        cinco inmuebles y los cinco son distintos: un apartaestudio de 20 m²,
-        otro de 26, y apartamentos de 40, 52 y 67. Eso es un edificio viejo con
-        cinco pisos distintos, no un proyecto con tipologias, y forzarlo daria
-        cinco "tipologias" de una unidad cada una: renombrar, no agrupar.
+    const sitios = new Map<string, Candidato[]>();
+    for (const candidato of candidatos) {
+      const clave = `${candidato.zone_id ?? '-'}|${canonica(candidato.address)}`;
+      sitios.set(clave, [...(sitios.get(clave) ?? []), candidato]);
+    }
 
-        La señal de que hay tipologias es que algo SE REPITA. Si ninguna unidad
-        se parece a otra, el grupo se queda como esta hoy: inmuebles sueltos.
-      */
-      const unidades = await this.unidadesDe(q, grupo.direccion, grupo.zone_id);
+    for (const unidades of sitios.values()) {
+      if (unidades.length < 2) continue;
       if (!agrupar(unidades).some((c) => c.length > 1)) continue;
 
-      const nombre = `${grupo.address}${grupo.zona ? ` · ${grupo.zona}` : ''}`;
+      const primera = unidades[0];
+      const direccion = direccionVisible(unidades);
+      const nombre = `${direccion}${primera.zona ? ` \u00b7 ${primera.zona}` : ''}`;
       const slug = await this.slugLibre(q, nombre);
 
       const [familia] = (await q.query(
@@ -126,39 +120,18 @@ export class UnitTypes1786200000000 implements MigrationInterface {
         [
           nombre.slice(0, 200),
           slug,
-          grupo.city_id,
-          grupo.zone_id,
-          grupo.address,
-          grupo.branch_id,
+          primera.city_id,
+          primera.zone_id,
+          direccion,
+          primera.branch_id,
         ],
       )) as { id: string }[];
 
       await q.query(
-        `UPDATE "property" SET "family_id" = $1
-         WHERE "family_id" IS NULL AND "deleted_at" IS NULL
-           AND lower(trim("address")) = $2
-           AND ("zone_id" = $3 OR ($3 IS NULL AND "zone_id" IS NULL))`,
-        [familia.id, grupo.direccion, grupo.zone_id],
+        `UPDATE "property" SET "family_id" = $1 WHERE id = ANY($2::uuid[])`,
+        [familia.id, unidades.map((u) => u.id)],
       );
     }
-  }
-
-  /** Las unidades de un sitio todavia sin proyecto. */
-  private async unidadesDe(
-    q: QueryRunner,
-    direccion: string,
-    zoneId: number | null,
-  ): Promise<Unidad[]> {
-    return (await q.query(
-      `SELECT p.id, p.property_type_id, pt.name AS tipo, p.bedrooms, p.bathrooms,
-              p.garages, p.area::float AS area, p.built_area::float AS built
-       FROM "property" p
-       JOIN "property_type" pt ON pt.id = p.property_type_id
-       WHERE p.family_id IS NULL AND p.deleted_at IS NULL
-         AND lower(trim(p.address)) = $1
-         AND (p.zone_id = $2 OR ($2 IS NULL AND p.zone_id IS NULL))`,
-      [direccion, zoneId],
-    )) as Unidad[];
   }
 
   /** El slug tiene que ser único: dos edificios pueden llamarse igual. */
@@ -271,6 +244,14 @@ export class UnitTypes1786200000000 implements MigrationInterface {
   }
 }
 
+interface Candidato extends Unidad {
+  zone_id: number | null;
+  address: string;
+  branch_id: string;
+  city_id: number;
+  zona: string | null;
+}
+
 interface Unidad {
   id: string;
   property_type_id: number;
@@ -363,4 +344,99 @@ function letraDe(indice: number): string {
   const letras = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   if (indice < 26) return letras[indice];
   return letras[Math.floor(indice / 26) - 1] + letras[indice % 26];
+}
+
+/**
+ * Las abreviaturas con las que se escribe una vía en Santander.
+ *
+ * Una sola forma por vía: da igual que en la ficha ponga "Cra", "Kra" o
+ * "Carrera", porque las tres las escribió la misma persona en tres momentos
+ * distintos. El orden importa —se busca la primera que case— y por eso las
+ * largas van antes que las cortas: "calle" tiene que ganarle a "cl".
+ */
+const VIAS: [RegExp, string][] = [
+  [/^(carrera|carera|crra|cra|kra|kr|cr)$/, 'carrera'],
+  [/^(calle|clle|cll|cle|cl)$/, 'calle'],
+  [/^(avenida|avda|aven|ave|av)$/, 'avenida'],
+  [/^(transversal|transv|tranv|trans|tv|tr)$/, 'transversal'],
+  [/^(diagonal|diag|diag|dg)$/, 'diagonal'],
+  [/^(circunvalar|circunv|circ)$/, 'circunvalar'],
+  [/^(autopista|autop|auto)$/, 'autopista'],
+  [/^(kilometro|kilometros|kilom|klm|km)$/, 'km'],
+  [/^(manzana|mzna|mza|mz)$/, 'manzana'],
+  [/^(apartamento|aparta|apto|apt)$/, 'apartamento'],
+  [/^(vereda|vda)$/, 'vereda'],
+  [/^(norte|nte|nrte)$/, 'n'],
+  [/^(sur)$/, 's'],
+  [/^(via|vias)$/, 'via'],
+  [/^(lote|lt)$/, 'lote'],
+];
+
+/** Las mismas vías, para separarlas del número cuando vienen pegadas. */
+const PEGADAS =
+  /\b(carrera|carera|cra|kra|kr|calle|cll|cl|avenida|avda|ave|av|transversal|tv|diagonal|dg|circunvalar|autopista|kilometro|km|manzana|mz|apartamento|apto|lote)(?=\d)/g;
+
+/**
+ * La dirección reducida a lo que de verdad la identifica.
+ *
+ * Las 642 direcciones están escritas a mano y ninguna convención se respeta:
+ * el mismo portal aparece como "Carrera 30 #29-16", "Carrera 30#29-16" y
+ * "Carrera 30-29-16". Comparando el texto tal cual, cada variante era un
+ * edificio distinto y ninguno llegaba a tener tipologías.
+ *
+ * Lo que se tira es solo decoración: tildes, mayúsculas, el "#" y el "No.",
+ * los espacios y guiones de sobra, y los ceros a la izquierda —"#44-07" y
+ * "#44-7" son la misma puerta—. Lo que NUNCA se toca son los dígitos ni las
+ * letras que acompañan al número: "Calle 11B #1A-20" y "Calle 11B #1B-20" son
+ * dos edificios y juntarlos sería peor que dejarlos separados.
+ */
+function canonica(direccion: string): string {
+  let texto = direccion
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase();
+
+  // "4,6" es un decimal, no una enumeración: los km de las vías rurales.
+  texto = texto.replace(/(\d),(\d)/g, '$1.$2');
+  texto = texto.replace(/\b(nro|no|num|numero)\s*\.?\s*(?=\d)/g, ' ');
+  texto = texto.replace(/[#°ºª]/g, ' ');
+  texto = texto.replace(PEGADAS, '$1 ');
+  texto = texto.replace(/\.(?!\d)/g, ' ');
+  texto = texto.replace(/[^a-z0-9.]+/g, ' ').trim();
+
+  const partes: string[] = [];
+  for (const bruto of texto.split(/\s+/).filter(Boolean)) {
+    const via = VIAS.find(([patron]) => patron.test(bruto));
+    const parte = via ? via[1] : bruto;
+    const anterior = partes[partes.length - 1];
+
+    /*
+      La letra del número viaja suelta la mitad de las veces: "Carrera 29 A",
+      "Calle 7 N", "#7 W-51". Pegada al número que la precede vuelve a ser lo
+      que era, y solo se pega una letra sola: "Carrera 15 D Bis" conserva su
+      "bis" porque una palabra entera si distingue una vía de otra.
+    */
+    if (/^[a-z]$/.test(parte) && anterior && /\d$/.test(anterior))
+      partes[partes.length - 1] = anterior + parte;
+    else partes.push(parte);
+  }
+
+  return partes.map((parte) => parte.replace(/^0+(?=\d)/, '')).join(' ');
+}
+
+/**
+ * De todas las formas de escribir el sitio, la que verá la agencia.
+ *
+ * La más repetida, porque es la que la oficina reconoce; y a igualdad, la
+ * primera por orden alfabético para que dos ejecuciones den lo mismo.
+ */
+function direccionVisible(unidades: Candidato[]): string {
+  const veces = new Map<string, number>();
+  for (const unidad of unidades) {
+    const texto = unidad.address.trim();
+    veces.set(texto, (veces.get(texto) ?? 0) + 1);
+  }
+  return [...veces.entries()].sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+  )[0][0];
 }
