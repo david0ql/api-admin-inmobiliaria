@@ -45,12 +45,17 @@ export class AgentsController {
     return this.agents.findVisible(id);
   }
 
+  /*
+    La lista de roles es la puerta gruesa —un asesor no pinta nada aqui—; quien
+    decide de verdad es el servicio, que compara el escalafon de quien crea con
+    el del que se va a crear.
+  */
   @Post()
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @Roles(Role.ADMIN, Role.DIRECTOR, Role.COORDINATOR, Role.MANAGER)
   @ApiOperation({
     summary: 'Da de alta un usuario',
     description:
-      'El administrador da de alta a cualquiera; un coordinador solo asesores y perfiles de consulta, y siempre en su propia sede. Lo impone el servicio, no el formulario.',
+      'La administracion da de alta a cualquiera; la direccion a todo el que este por debajo suyo, en cualquier sede; quien manda en una sede solo asesores y perfiles de consulta, y siempre en la suya. Nadie da de alta a un igual ni a un superior. Lo impone el servicio, no el formulario.',
   })
   create(@Body() dto: CreateAgentDto) {
     return this.agents.create(dto);

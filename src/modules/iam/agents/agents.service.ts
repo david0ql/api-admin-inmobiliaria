@@ -15,6 +15,7 @@ import { AgentShift } from '../domain/agent-shift.entity';
 import { AgentStatus, Role, seesAllBranches } from '../domain/role.enum';
 import {
   assertCanChangeRoleOrBranch,
+  assertCanCreateAgent,
   assertCanEditAgent,
   resolveBranch,
 } from '../scope';
@@ -109,29 +110,13 @@ export class AgentsService {
     const actor = RequestContext.actor();
 
     /*
-     * La direccion mira, no reparte cuentas. Ve las cuatro sedes y su cartera
-     * entera, pero dar de alta usuarios es administrar el sistema — y eso es
-     * del ADMIN, o del coordinador dentro de su oficina.
+     * El alta reparte acceso al sistema, asi que va por el mismo escalafon que
+     * la edicion: la administracion crea a cualquiera; la direccion, a todo el
+     * que este por debajo suyo en cualquier sede; quien manda en una sede,
+     * solo asesores y perfiles de consulta. Si esto se dejara al formulario,
+     * cualquiera con un `curl` se fabricaria un complice con mas rango que el.
      */
-    if (actor?.role === Role.DIRECTOR) {
-      throw new ForbiddenException(
-        'La dirección no da de alta usuarios: pídeselo a la administración',
-      );
-    }
-
-    /*
-     * Quien manda en una sola sede da de alta a los suyos, y solo a los suyos:
-     * ni administradores, ni directores, ni otro coordinador. Si esto se
-     * dejara al formulario, cualquiera con un `curl` se ascenderia a si mismo
-     * creando un ADMIN.
-     */
-    if (actor && !seesAllBranches(actor.role as Role)) {
-      if (role !== Role.AGENT && role !== Role.VIEWER) {
-        throw new ForbiddenException(
-          'Desde una sede solo se dan de alta asesores y perfiles de consulta',
-        );
-      }
-    }
+    if (actor) assertCanCreateAgent(actor, role);
 
     // ADMIN y DIRECTOR no cuelgan de ninguna sede; el resto siempre de una, y
     // `resolveBranch` decide cual (la propia, o la elegida si se ven todas).

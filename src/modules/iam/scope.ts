@@ -177,6 +177,36 @@ export function assertCanEditAgent(
 }
 
 /**
+ * Quien puede dar de alta a quien.
+ *
+ * Hermano de `assertCanEditAgent` y sobre el MISMO escalafon a proposito: dar
+ * de alta es repartir acceso al sistema, asi que la regla es la de siempre —
+ * nadie da de alta a un igual ni a un superior—. Tenerla escrita dos veces
+ * seria garantizar que el dia que una cambie, la otra se quede corta y nadie
+ * se entere.
+ *
+ * De la sede no se ocupa esta funcion: la decide `resolveBranch`, que ya
+ * impone la propia a quien no ve mas que una y rechaza el cuerpo que pida
+ * otra.
+ */
+export function assertCanCreateAgent(
+  actor: AuthenticatedActor,
+  role: Role,
+): void {
+  const rol = actor.role as Role;
+
+  // El administrador da de alta a cualquiera, incluido otro administrador:
+  // alguien tiene que poder crear el segundo.
+  if (rol === Role.ADMIN) return;
+
+  if (!outranks(rol, role)) {
+    throw new ForbiddenException(
+      'No puedes dar de alta a alguien de tu mismo perfil ni de uno superior',
+    );
+  }
+}
+
+/**
  * El rol y la sede solo los mueve el administrador, y nunca sobre si mismo.
  *
  * Se rechaza en vez de ignorarlo en silencio: un coordinador que crea haberle

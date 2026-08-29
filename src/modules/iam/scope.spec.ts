@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { Role } from './domain/role.enum';
 import {
   assertCanChangeRoleOrBranch,
+  assertCanCreateAgent,
   assertCanEditAgent,
   type EditableAgent,
 } from './scope';
@@ -137,5 +138,68 @@ describe('assertCanChangeRoleOrBranch', () => {
         branchId: SEDE_A,
       }),
     ).toBe(false);
+  });
+});
+
+describe('assertCanCreateAgent', () => {
+  const crea = (a: AuthenticatedActor, role: Role) => {
+    try {
+      assertCanCreateAgent(a, role);
+      return true;
+    } catch (err) {
+      expect(err).toBeInstanceOf(ForbiddenException);
+      return false;
+    }
+  };
+
+  it('el administrador da de alta cualquier perfil', () => {
+    const admin = actor(Role.ADMIN, null);
+    for (const role of [
+      Role.ADMIN,
+      Role.DIRECTOR,
+      Role.COORDINATOR,
+      Role.AGENT,
+      Role.VIEWER,
+    ]) {
+      expect(crea(admin, role)).toBe(true);
+    }
+  });
+
+  it('la direccion crea por debajo de si misma, nunca a su altura ni por encima', () => {
+    const director = actor(Role.DIRECTOR, null);
+    expect(crea(director, Role.COORDINATOR)).toBe(true);
+    expect(crea(director, Role.AGENT)).toBe(true);
+    expect(crea(director, Role.VIEWER)).toBe(true);
+    expect(crea(director, Role.DIRECTOR)).toBe(false);
+    expect(crea(director, Role.ADMIN)).toBe(false);
+  });
+
+  it('quien manda en una sede solo da de alta asesores y consulta', () => {
+    for (const rol of [Role.COORDINATOR, Role.MANAGER]) {
+      const jefe = actor(rol, SEDE_A);
+      expect(crea(jefe, Role.AGENT)).toBe(true);
+      expect(crea(jefe, Role.VIEWER)).toBe(true);
+      // Un complice con su mismo rango, o con mas, es justo lo que no puede
+      // fabricarse.
+      expect(crea(jefe, Role.COORDINATOR)).toBe(false);
+      expect(crea(jefe, Role.MANAGER)).toBe(false);
+      expect(crea(jefe, Role.DIRECTOR)).toBe(false);
+      expect(crea(jefe, Role.ADMIN)).toBe(false);
+    }
+  });
+
+  it('un asesor o un perfil de consulta no dan de alta a nadie', () => {
+    for (const rol of [Role.AGENT, Role.VIEWER]) {
+      const nadie = actor(rol, SEDE_A);
+      for (const role of [
+        Role.ADMIN,
+        Role.DIRECTOR,
+        Role.COORDINATOR,
+        Role.AGENT,
+        Role.VIEWER,
+      ]) {
+        expect(crea(nadie, role)).toBe(false);
+      }
+    }
   });
 });
