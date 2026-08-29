@@ -35,6 +35,7 @@ import {
 } from './dto/property.dto';
 import { SearchPropertiesDto } from './dto/search-properties.dto';
 import { UnitTypesService } from './unit-types.service';
+import { AutoUnitTypesService } from './unit-types.auto';
 import {
   applyPropertyFilters,
   applyPropertySort,
@@ -55,6 +56,7 @@ export class PropertiesService {
     private readonly agents: AgentsService,
     private readonly storage: StorageService,
     private readonly unitTypes: UnitTypesService,
+    private readonly autoUnitTypes: AutoUnitTypesService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -184,18 +186,22 @@ export class PropertiesService {
         : [],
     });
 
-    return this.dataSource.transaction(async (manager) => {
-      const saved = await manager.save(property);
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const guardado = await manager.save(property);
       await manager.save(
         manager.create(PropertyAssignment, {
-          propertyId: saved.id,
+          propertyId: guardado.id,
           agentId: assignedAgentId,
           role: AssignmentRole.CAPTURE,
           assignedByAgentId: actor.id,
         }),
       );
-      return saved;
+      return guardado;
     });
+
+    // Un lote nuevo en un proyecto de suelo se clasifica solo.
+    if (saved.familyId) await this.autoUnitTypes.sync(saved.id);
+    return saved;
   }
 
   async update(
@@ -232,6 +238,7 @@ export class PropertiesService {
       apartamento el "Tipo A" de otro edificio dejaria su ficha enseñando un
       plano que no es suyo. `undefined` es "no lo toques"; `null`, "quitasela".
     */
+    const tipologiaPrevia = property.unitTypeId;
     if (unitTypeId !== undefined) {
       property.unitTypeId = await this.unitTypes.resolveForProperty(
         unitTypeId,
@@ -258,6 +265,20 @@ export class PropertiesService {
     }
 
     await this.repo.save(property);
+    /*
+      El area puede haber cambiado, y con ella el tramo que le toca: un lote que
+      pasa de 900 a 1.500 m² ya no es el mismo producto. Solo para suelo — de
+      eso se encarga el propio servicio — y sin recalcular el proyecto entero.
+    */
+    /*
+      Si se le pone una tipología a mano, la automatica que deja atras puede
+      quedarse vacia. `sync` no puede recogerla: cuando llega, el inmueble ya
+      esta en la nueva y no hay forma de saber de donde venia.
+    */
+    if (tipologiaPrevia && tipologiaPrevia !== property.unitTypeId) {
+      await this.autoUnitTypes.release(tipologiaPrevia);
+    }
+    if (property.familyId) await this.autoUnitTypes.sync(id);
     return this.findOne(id, actor);
   }
 
@@ -269,6 +290,8 @@ export class PropertiesService {
     // Borrado logico: la ficha sigue disponible para el historico comercial,
     // y por eso sus fotos tampoco se tocan.
     await this.repo.softDelete(id);
+    // Si era el ultimo lote de su tramo, esa tipología ya no clasifica nada.
+    await this.autoUnitTypes.release(property.unitTypeId);
   }
 
   // --- asignacion --------------------------------------------------------

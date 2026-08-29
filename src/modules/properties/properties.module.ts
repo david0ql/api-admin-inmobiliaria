@@ -14,6 +14,7 @@ import { PropertiesController } from './properties.controller';
 import { FamiliesService } from './families.service';
 import { FamiliesController } from './families.controller';
 import { UnitTypesService } from './unit-types.service';
+import { AutoUnitTypesService } from './unit-types.auto';
 import { UnitTypesController } from './unit-types.controller';
 
 @Module({
@@ -31,7 +32,12 @@ import { UnitTypesController } from './unit-types.controller';
     MediaModule,
   ],
   controllers: [PropertiesController, FamiliesController, UnitTypesController],
-  providers: [PropertiesService, FamiliesService, UnitTypesService],
+  providers: [
+    PropertiesService,
+    FamiliesService,
+    UnitTypesService,
+    AutoUnitTypesService,
+  ],
   exports: [
     PropertiesService,
     FamiliesService,

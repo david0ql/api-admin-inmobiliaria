@@ -651,6 +651,9 @@ export class PublicService {
       .leftJoinAndSelect('property.zone', 'zone')
       .leftJoinAndSelect('property.currency', 'currency')
       .leftJoinAndSelect('property.family', 'family')
+      // La ficha dice de que tipologia es la unidad; `unitTypeId` viaja solo
+      // por ser columna, pero el nombre hay que traerlo.
+      .leftJoinAndSelect('property.unitType', 'unitType')
       .leftJoinAndSelect('property.features', 'features')
       .leftJoinAndSelect('property.images', 'images')
       .where('property.code = :code', { code })
@@ -752,11 +755,12 @@ export class PublicService {
         return {
           ...family,
           /*
-            Las unidades sin tipologia cuentan como unidades pero no como
-            tipologia: la tarjeta diria "6 tipologias" en un proyecto de cinco
-            solo porque hay un apartamento que nadie ha clasificado todavia.
+            Cuenta TODAS las filas, incluida la de las unidades sin clasificar.
+            La ficha del proyecto enseña esa fila como una opcion mas del
+            desplegable, asi que descontarla aqui haria que la tarjeta dijera
+            cinco y la ficha ofreciera seis.
           */
-          unitTypeCount: unitTypes.filter((u) => u.id !== null).length,
+          unitTypeCount: unitTypes.length,
           availableUnits: unitTypes.reduce((sum, u) => sum + u.available, 0),
           fromPrice: prices.length ? Math.min(...prices) : null,
         };

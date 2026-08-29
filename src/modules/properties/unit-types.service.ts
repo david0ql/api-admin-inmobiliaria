@@ -113,6 +113,7 @@ export class UnitTypesService {
     const filas: UnitTypeSummary[] = tipologias
       .map((tipologia): UnitTypeSummary => {
         const datos = agregados.get(tipologia.id) ?? vacio();
+        const esAuto = tipologia.kind === UnitTypeKind.AUTO;
         return {
           id: tipologia.id,
           code: tipologia.code,
@@ -121,9 +122,14 @@ export class UnitTypesService {
           kind: tipologia.kind,
           unitType: tipologia.name,
           propertyType: datos.propertyType,
-          bedrooms: tipologia.bedrooms ?? datos.bedrooms,
-          bathrooms: tipologia.bathrooms,
-          garages: tipologia.garages,
+          /*
+            El suelo no tiene alcobas, y las suyas vienen a cero en la ficha del
+            inmueble. Sin este corte la web pintaria "0 alcobas" en un lote, que
+            no es un dato: es la ausencia de uno.
+          */
+          bedrooms: esAuto ? null : (tipologia.bedrooms ?? datos.bedrooms),
+          bathrooms: esAuto ? null : tipologia.bathrooms,
+          garages: esAuto ? null : tipologia.garages,
           builtArea: num(tipologia.builtArea),
           /*
             Manda lo escrito: si la agencia dice que el Tipo A son 58 m², son 58
@@ -201,7 +207,7 @@ export class UnitTypesService {
       .addSelect('MAX(property.area)', 'maxArea')
       .addSelect('MIN(NULLIF(property.sale_price, 0))', 'minPrice')
       .addSelect('MAX(NULLIF(property.sale_price, 0))', 'maxPrice')
-      .addSelect('MIN(property.bedrooms)', 'bedrooms')
+      .addSelect('MIN(NULLIF(property.bedrooms, 0))', 'bedrooms')
       .addSelect('MIN(propertyType.name)', 'propertyType')
       /*
         La unidad mas pequeña representa a la tipologia: es la del "desde" que

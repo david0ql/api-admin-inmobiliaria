@@ -18,6 +18,7 @@ import type { AuthenticatedActor } from '../../shared/request-context/request-co
 import { Property } from './domain/property.entity';
 import { PropertyFamily } from './domain/property-family.entity';
 import { Availability, PublicationStatus } from './domain/property.enums';
+import { AutoUnitTypesService } from './unit-types.auto';
 import type {
   CreateFamilyDto,
   SearchFamiliesDto,
@@ -34,6 +35,7 @@ export class FamiliesService {
     @InjectRepository(Property)
     private readonly properties: Repository<Property>,
     private readonly catalog: CatalogService,
+    private readonly autoUnitTypes: AutoUnitTypesService,
   ) {}
 
   // --- lectura -----------------------------------------------------------
@@ -308,10 +310,21 @@ export class FamiliesService {
       throw new NotFoundException(`Inmueble ${propertyId} no encontrado`);
     assertSameBranch(this.actor(), property.branchId);
 
+    const anterior = await this.properties.findOne({
+      where: { id: propertyId },
+      loadEagerRelations: false,
+      select: { id: true, unitTypeId: true },
+    });
+
     await this.properties.update(
       { id: propertyId },
       { familyId, unitTypeId: null },
     );
+
+    // La que deja atras puede quedarse vacia; en el proyecto nuevo, si es
+    // suelo, le toca tramo desde el primer momento.
+    await this.autoUnitTypes.release(anterior?.unitTypeId ?? null);
+    if (familyId) await this.autoUnitTypes.sync(propertyId);
   }
 
   /** Inmuebles sin proyecto, para el flujo de alta masiva. */
