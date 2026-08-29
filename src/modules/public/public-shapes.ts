@@ -32,6 +32,7 @@ export interface PublicUnitType {
   minArea: number | null;
   maxArea: number | null;
   builtArea: number | null;
+  description: string | null;
 }
 
 export interface PublicImage {
@@ -65,6 +66,12 @@ export interface PublicFamilyRef {
   coverUrl: string | null;
   published: boolean;
   createdAt: Date;
+  /*
+    Las etapas del proyecto —torre 1, torre 2—, cuando quien pregunta las trae.
+    Solo la ficha del proyecto las carga; en el resto no viene la relacion y el
+    campo no aparece, igual que antes.
+  */
+  children?: PublicFamilyRef[];
 }
 
 /**
@@ -96,6 +103,9 @@ export function publicUnitType(
     minArea: numero(unitType.areaMin),
     maxArea: numero(unitType.areaMax),
     builtArea: numero(unitType.builtArea),
+    // Lo escribe la agencia para que se lea: dejarlo fuera seria esconder algo
+    // que alguien redacto a proposito para el comprador.
+    description: unitType.description,
   };
 }
 
@@ -126,7 +136,9 @@ export function publicFamily(
   family: PropertyFamily | null | undefined,
 ): PublicFamilyRef | null {
   if (!family) return null;
+  const etapas = family.children?.map(publicFamily).filter(esRef);
   return {
+    ...(etapas ? { children: etapas } : {}),
     id: family.id,
     name: family.name,
     slug: family.slug,
@@ -254,6 +266,10 @@ export function publicProperty(property: Property): PublicPropertyShape {
     unitTypeId: property.unitTypeId,
     createdAt: property.createdAt,
   };
+}
+
+function esRef(ref: PublicFamilyRef | null): ref is PublicFamilyRef {
+  return ref !== null;
 }
 
 /** `numeric` llega como texto: la web espera un número o nada. */
