@@ -13,8 +13,10 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *     279 inmuebles que comparten barrio y dirección— creando un proyecto por
  *     grupo. La dirección no se compara como está escrita sino reducida a su
  *     forma canónica, porque viene a mano y el mismo portal aparece de tres
- *     maneras. Nacen SIN publicar: son edificios deducidos de los datos, y que
- *     aparezcan en la web es una decisión de la agencia, no mía.
+ *     maneras; y un sitio se parte en varios proyectos cuando los títulos
+ *     nombran conjuntos que no tienen nada que ver. Nacen SIN publicar: son
+ *     edificios deducidos de los datos, y que aparezcan en la web es una
+ *     decisión de la agencia, no mía.
  *  3. Escribe las tipologías de cada proyecto y asigna cada inmueble a la
  *     suya.
  */
@@ -86,12 +88,13 @@ export class UnitTypes1786200000000 implements MigrationInterface {
   private async agruparPorSitio(q: QueryRunner): Promise<void> {
     const candidatos = (await q.query(`
       SELECT p.id, p.zone_id, p.address, p.branch_id::text AS branch_id,
-             p.city_id, z.name AS zona,
+             p.city_id, z.name AS zona, c.name AS ciudad, p.title,
              p.property_type_id, pt.name AS tipo, p.bedrooms, p.bathrooms,
              p.garages, p.area::float AS area, p.built_area::float AS built
       FROM property p
       JOIN property_type pt ON pt.id = p.property_type_id
       LEFT JOIN zone z ON z.id = p.zone_id
+      LEFT JOIN city c ON c.id = p.city_id
       WHERE p.deleted_at IS NULL
         AND p.family_id IS NULL
         AND p.address IS NOT NULL
@@ -104,35 +107,45 @@ export class UnitTypes1786200000000 implements MigrationInterface {
       sitios.set(clave, [...(sitios.get(clave) ?? []), candidato]);
     }
 
-    for (const unidades of sitios.values()) {
-      if (unidades.length < 2) continue;
-      if (!agrupar(unidades).some((c) => c.length > 1)) continue;
+    for (const sitio of sitios.values()) {
+      const trozos = partirPorConjunto(sitio);
 
-      const primera = unidades[0];
-      const direccion = direccionVisible(unidades);
-      const nombre = `${direccion}${primera.zona ? ` \u00b7 ${primera.zona}` : ''}`;
-      const slug = await this.slugLibre(q, nombre);
+      for (const unidades of trozos) {
+        if (unidades.length < 2) continue;
+        if (!agrupar(unidades).some((c) => c.length > 1)) continue;
 
-      const [familia] = (await q.query(
-        `INSERT INTO "property_family"
-           ("name", "slug", "kind", "status", "city_id", "zone_id", "address",
-            "published", "branch_id")
-         VALUES ($1, $2, 'COMPLEX', 'DELIVERED', $3, $4, $5, false, $6)
-         RETURNING id`,
-        [
-          nombre.slice(0, 200),
-          slug,
-          primera.city_id,
-          primera.zone_id,
-          direccion,
-          primera.branch_id,
-        ],
-      )) as { id: string }[];
+        const primera = unidades[0];
+        const direccion = direccionVisible(unidades);
+        /*
+          El nombre sale de la dirección salvo cuando el sitio se ha partido:
+          ahí los trozos comparten dirección y llamarlos igual dejaria cinco
+          proyectos indistinguibles en el panel.
+        */
+        const conjunto = trozos.length > 1 ? nombreConjunto(primera) : null;
+        const nombre = `${conjunto ?? direccion}${primera.zona ? ` \u00b7 ${primera.zona}` : ''}`;
+        const slug = await this.slugLibre(q, nombre);
 
-      await q.query(
-        `UPDATE "property" SET "family_id" = $1 WHERE id = ANY($2::uuid[])`,
-        [familia.id, unidades.map((u) => u.id)],
-      );
+        const [familia] = (await q.query(
+          `INSERT INTO "property_family"
+             ("name", "slug", "kind", "status", "city_id", "zone_id", "address",
+              "published", "branch_id")
+           VALUES ($1, $2, 'COMPLEX', 'DELIVERED', $3, $4, $5, false, $6)
+           RETURNING id`,
+          [
+            nombre.slice(0, 200),
+            slug,
+            primera.city_id,
+            primera.zone_id,
+            direccion,
+            primera.branch_id,
+          ],
+        )) as { id: string }[];
+
+        await q.query(
+          `UPDATE "property" SET "family_id" = $1 WHERE id = ANY($2::uuid[])`,
+          [familia.id, unidades.map((u) => u.id)],
+        );
+      }
     }
   }
 
@@ -251,6 +264,8 @@ export class UnitTypes1786200000000 implements MigrationInterface {
 interface Candidato extends Unidad {
   zone_id: number | null;
   address: string;
+  title: string | null;
+  ciudad: string | null;
   branch_id: string;
   city_id: number;
   zona: string | null;
@@ -442,4 +457,130 @@ function direccionVisible(unidades: Candidato[]): string {
   return [...veces.entries()].sort(
     (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
   )[0][0];
+}
+
+/**
+ * Palabras que la agencia pega detrás del conjunto y no lo nombran.
+ *
+ * El título se arma como "APARTAMENTO EN VENTA EN <conjunto> <barrio> <sector>
+ * <ciudad>". Barrio y ciudad se conocen y se quitan mirándolos; el sector no
+ * está en ninguna tabla y solo se puede listar.
+ */
+const SECTORES = new Set([
+  'oriental',
+  'occidental',
+  'norte',
+  'sur',
+  'centro',
+  'cabecera',
+  'meseta',
+  'llano',
+]);
+
+/** Preposiciones y artículos: aparecen en todos los nombres y no distinguen. */
+const VACIAS = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'y']);
+
+/**
+ * El nombre del conjunto tal y como lo escribió el asesor.
+ *
+ * Se recorta por los dos extremos: por delante hasta el segundo "en" —"CASA EN
+ * VENTA EN ..."— y por detrás quitando barrio, sector y ciudad, que ya vienen
+ * en sus columnas. Lo que queda en medio es el conjunto, y devuelve null si no
+ * queda nada: en muchos barrios el barrio ES el conjunto ("Balcones del
+ * Llanito") y el asesor no lo repite.
+ */
+function nombreConjunto(unidad: Candidato): string | null {
+  const titulo = (unidad.title ?? '').trim();
+  const corte = titulo.match(
+    /\ben\s+(?:venta|arriendo|arrendo|alquiler|renta)\s+en\s+/i,
+  );
+  if (!corte) return null;
+
+  const palabras = titulo
+    .slice((corte.index ?? 0) + corte[0].length)
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const cola = new Set(
+    `${unidad.zona ?? ''} ${unidad.ciudad ?? ''}`
+      .split(/[^\p{L}\p{N}]+/u)
+      .map(sinTildes)
+      .filter(Boolean),
+  );
+  while (palabras.length) {
+    const ultima = sinTildes(palabras[palabras.length - 1]);
+    if (!cola.has(ultima) && !SECTORES.has(ultima) && !VACIAS.has(ultima))
+      break;
+    palabras.pop();
+  }
+  if (!palabras.length) return null;
+
+  // El título viene en mayúsculas de imprenta y ahí es un nombre propio. El
+  // artículo va en minúscula salvo cuando abre el nombre: "La Molienda".
+  return palabras
+    .map((palabra, indice) =>
+      indice && VACIAS.has(sinTildes(palabra))
+        ? palabra.toLowerCase()
+        : palabra.charAt(0).toUpperCase() + palabra.slice(1).toLowerCase(),
+    )
+    .join(' ');
+}
+
+function sinTildes(texto: string): string {
+  return texto.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+/**
+ * Un sitio puede ser varios proyectos, pero casi nunca lo es.
+ *
+ * En "Avenida 17 #7W-51" hay diecisiete apartamentos y los títulos nombran
+ * cinco conjuntos que no tienen nada que ver —Trapiche, Arrieros, Cerros de la
+ * Cantera, La Molienda, Matecaña— y que no aparecen en ninguna otra dirección
+ * de la base: alguien puso ahí la dirección de la oficina. Dejarlos juntos
+ * publicaría cinco conjuntos como si fueran uno.
+ *
+ * Pero el título es un campo escrito a mano y partir de más es peor que no
+ * partir: "Altos de Cañaveral" y "Altos de Cañaveral 5" son etapas del mismo
+ * sitio, "Miraflores" y "Miraflores del Valle" son la misma torre escrita por
+ * dos asesores, y "Vista Real 2" y "Vista Real 7" son dos lotes. Por eso solo
+ * se parte cuando los nombres no comparten NI UNA palabra, y nunca cuando
+ * alguno de ellos falta. Sobre los 642 inmuebles esto parte exactamente dos
+ * sitios: el de la Avenida 17 y uno de tres cabañas sueltas que no llegaba a
+ * proyecto. Los otros noventa y nueve se quedan como están.
+ */
+function partirPorConjunto(unidades: Candidato[]): Candidato[][] {
+  if (unidades.length < 2) return [unidades];
+
+  const nombres = unidades.map((unidad) =>
+    (nombreConjunto(unidad) ?? '')
+      .split(/\s+/)
+      .map(sinTildes)
+      .filter((palabra) => palabra && !VACIAS.has(palabra)),
+  );
+  // Si a uno le falta el nombre no hay con qué decidir, y se decide no partir.
+  if (nombres.some((palabras) => !palabras.length)) return [unidades];
+
+  /*
+    "Comparten palabra" tiene que ser transitivo: si A la comparte con B y B
+    con C, los tres son el mismo conjunto aunque A y C no se toquen. Es lo que
+    pasa cuando una etapa se escribe "Vertice", otra "Vertice 2" y otra
+    "Vertice 2 Torre B".
+  */
+  const padre = unidades.map((_, indice) => indice);
+  const raiz = (indice: number): number =>
+    padre[indice] === indice ? indice : (padre[indice] = raiz(padre[indice]));
+
+  for (let i = 0; i < unidades.length; i++) {
+    const suyas = new Set(nombres[i]);
+    for (let j = i + 1; j < unidades.length; j++)
+      if (nombres[j].some((palabra) => suyas.has(palabra)))
+        padre[raiz(i)] = raiz(j);
+  }
+
+  const trozos = new Map<number, Candidato[]>();
+  unidades.forEach((unidad, indice) => {
+    const grupo = raiz(indice);
+    trozos.set(grupo, [...(trozos.get(grupo) ?? []), unidad]);
+  });
+  return [...trozos.values()];
 }
