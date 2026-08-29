@@ -36,18 +36,6 @@ function minusculizar(nombre: string): string {
     .join(' ');
 }
 
-/** El inverso, para el down(). */
-function mayusculizar(nombre: string): string {
-  return nombre
-    .split(' ')
-    .map((palabra, i) =>
-      i > 0 && ENLACES.includes(palabra.toLowerCase())
-        ? palabra.charAt(0).toUpperCase() + palabra.slice(1).toLowerCase()
-        : palabra,
-    )
-    .join(' ');
-}
-
 export class CatalogCleanupAgain1786500000000 implements MigrationInterface {
   /** Reescribe los nombres de zona que cambian al aplicarles `regla`. */
   private async recasearZonas(
