@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+  Logger,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
@@ -9,6 +14,8 @@ import { Agent } from '../domain/agent.entity';
 import { RefreshToken } from '../domain/refresh-token.entity';
 import { AgentStatus } from '../domain/role.enum';
 import { AgentsService } from '../agents/agents.service';
+import { assertCanEditAgent } from '../scope';
+import type { AuthenticatedActor } from '../../../shared/request-context/request-context';
 import type { SessionResponse } from './auth.dto';
 import type { AccessTokenPayload } from './jwt.strategy';
 
@@ -125,6 +132,41 @@ export class AuthService {
     await this.agents.setPassword(agentId, next);
     // Cambiar la contrasena cierra el resto de sesiones.
     await this.revokeAllForAgent(agentId);
+  }
+
+  /**
+   * Restablecimiento por otra persona: la administracion —o quien manda en la
+   * sede— le pone una contrasena a alguien que no puede entrar.
+   *
+   * Deliberadamente separado de `changePassword` y no un parametro suyo. Son
+   * dos operaciones con dos verdades distintas: alli quien cambia la clave la
+   * sabe y hay que exigirsela; aqui no la sabe —ni tiene por que— y lo que
+   * hace falta comprobar es el mando. Juntarlas en una funcion con un `if`
+   * seria dejar a un `if` mal puesto la distancia entre "cambio mi clave" y
+   * "le cambio la clave a otro".
+   */
+  async resetPasswordFor(
+    actor: AuthenticatedActor,
+    targetId: string,
+    password: string,
+  ): Promise<void> {
+    const target = await this.agents.findById(targetId);
+
+    /*
+     * Sobre uno mismo, jamas. Esta ruta no pide la contrasena actual, asi que
+     * si valiera para la propia cuenta seria el camino corto para saltarse esa
+     * comprobacion: bastaria un portatil abierto un minuto para quedarse con
+     * la cuenta de un administrador sin saber su clave.
+     */
+    if (actor.id === target.id) {
+      throw new ForbiddenException(
+        'Para cambiar tu propia contrasena usa /auth/change-password, que pide la actual',
+      );
+    }
+    assertCanEditAgent(actor, target);
+
+    await this.agents.setPassword(target.id, password, true);
+    await this.revokeAllForAgent(target.id);
   }
 
   /** Limpia tokens caducados; se puede colgar de un cron mas adelante. */

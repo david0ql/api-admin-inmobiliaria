@@ -67,3 +67,39 @@ export function canWriteAcrossTeam(role: Role): boolean {
     role === Role.MANAGER
   );
 }
+
+/**
+ * El escalafon, para responder a "¿este manda sobre este otro?".
+ *
+ * Existe solo para editar fichas de personas. El resto de permisos son por
+ * alcance —cuanto ves dentro de una sede, cuantas sedes ves— y esas dos
+ * preguntas no ordenan a nadie: un VIEWER de contabilidad ve la cartera
+ * entera y no manda sobre nadie.
+ *
+ * VIEWER va con AGENT y no debajo: son dos perfiles distintos del mismo
+ * escalon, y ponerlo mas abajo dejaria a un asesor reseteandole la contrasena
+ * a contabilidad.
+ */
+const RANK: Record<Role, number> = {
+  [Role.ADMIN]: 4,
+  [Role.DIRECTOR]: 3,
+  [Role.COORDINATOR]: 2,
+  [Role.MANAGER]: 2,
+  [Role.AGENT]: 1,
+  [Role.VIEWER]: 1,
+};
+
+export function rankOf(role: Role): number {
+  return RANK[role] ?? 0;
+}
+
+/**
+ * Si `actor` esta por encima de `target` en el escalafon.
+ *
+ * Estricto a proposito: entre iguales no se editan. Sin esto, un director le
+ * cambia la contrasena al administrador y entra como el —que es la via mas
+ * corta que hay para subir de rango sin que nadie cambie ningun rol—.
+ */
+export function outranks(actor: Role, target: Role): boolean {
+  return rankOf(actor) > rankOf(target);
+}

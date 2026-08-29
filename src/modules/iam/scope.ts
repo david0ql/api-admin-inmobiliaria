@@ -3,6 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 import {
   Role,
   canWriteAcrossTeam,
+  outranks,
   seesAllBranches,
   seesEverything,
 } from './domain/role.enum';
@@ -120,5 +121,90 @@ export function assertSameBranch(
   if (seesAllBranches(actor.role as Role)) return;
   if (branchId && branchId !== actor.branchId) {
     throw new ForbiddenException('Ese registro pertenece a otra sede');
+  }
+}
+
+/** Lo minimo que hay que saber de alguien para decidir si se le puede editar. */
+export interface EditableAgent {
+  id: string;
+  role: Role;
+  branchId: string | null;
+}
+
+/**
+ * Quien puede editar la ficha de quien.
+ *
+ * Es una sola funcion y no una comprobacion repartida por cada ruta porque
+ * son las mismas tres preguntas siempre —¿soy yo?, ¿mando sobre el?, ¿es de
+ * mi sede?— y la primera vez que se contesten distinto en dos sitios habra
+ * una puerta abierta que nadie sabra que existe.
+ *
+ * No filtra que CAMPOS puede tocar: eso es otra pregunta y la contesta
+ * `assertCanChangeRoleOrBranch`. Aqui solo se decide si esta ficha es suya.
+ */
+export function assertCanEditAgent(
+  actor: AuthenticatedActor,
+  target: EditableAgent,
+): void {
+  // Cada uno es dueño de su propia ficha. Que pueda cambiar de ella es harina
+  // de otro costal.
+  if (actor.id === target.id) return;
+
+  const rol = actor.role as Role;
+
+  // El administrador edita a cualquiera, incluido otro administrador: es la
+  // unica figura que no tiene a nadie por encima que le arregle un correo mal
+  // escrito.
+  if (rol === Role.ADMIN) return;
+
+  if (!outranks(rol, target.role)) {
+    throw new ForbiddenException(
+      'Solo puedes editar a personas por debajo de tu perfil',
+    );
+  }
+
+  if (seesAllBranches(rol)) return;
+
+  /*
+   * Aqui no vale `assertSameBranch`: esa deja pasar los registros sin sede,
+   * que para un inmueble es un hueco sin importancia y para una persona
+   * significa "administrador o direccion". Un coordinador no puede tocar a
+   * quien no cuelga de ninguna oficina, asi que la sede se exige de verdad.
+   */
+  if (!actor.branchId || target.branchId !== actor.branchId) {
+    throw new ForbiddenException('Esa persona pertenece a otra sede');
+  }
+}
+
+/**
+ * El rol y la sede solo los mueve el administrador, y nunca sobre si mismo.
+ *
+ * Se rechaza en vez de ignorarlo en silencio: un coordinador que crea haberle
+ * puesto el perfil de administrador a alguien y se va tan tranquilo es peor
+ * que un 403, porque el error se descubre el dia que hace falta.
+ *
+ * Solo salta cuando el valor CAMBIA de verdad: los formularios reenvian la
+ * ficha entera, y negarse a guardar un telefono porque el cuerpo repite el rol
+ * que ya tenia seria romper la pantalla por nada.
+ */
+export function assertCanChangeRoleOrBranch(
+  actor: AuthenticatedActor,
+  target: EditableAgent,
+  next: { role?: Role; branchId?: string | null },
+): void {
+  const cambiaRol = next.role !== undefined && next.role !== target.role;
+  const cambiaSede =
+    next.branchId !== undefined && next.branchId !== target.branchId;
+  if (!cambiaRol && !cambiaSede) return;
+
+  if (actor.id === target.id) {
+    throw new ForbiddenException(
+      'Nadie cambia su propio perfil ni su propia sede: pídeselo a la administración',
+    );
+  }
+  if ((actor.role as Role) !== Role.ADMIN) {
+    throw new ForbiddenException(
+      'Cambiar el perfil o la sede de alguien es cosa de la administración',
+    );
   }
 }

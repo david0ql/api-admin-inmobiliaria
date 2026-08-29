@@ -10,18 +10,26 @@ import {
   Post,
   Put,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AgentsService } from './agents.service';
 import { CreateAgentDto, SetPasswordDto, UpdateAgentDto } from './agents.dto';
 import { SetShiftsDto } from './shifts.dto';
-import { Roles } from '../decorators';
+import { CurrentUser, Roles } from '../decorators';
 import { Role } from '../domain/role.enum';
+import { AuthService } from '../auth/auth.service';
+import type { AuthenticatedActor } from '../../../shared/request-context/request-context';
 
 @ApiTags('agents')
 @Controller('agents')
 export class AgentsController {
-  constructor(private readonly agents: AgentsService) {}
+  constructor(
+    private readonly agents: AgentsService,
+    private readonly auth: AuthService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Lista los asesores del equipo' })
@@ -48,21 +56,60 @@ export class AgentsController {
     return this.agents.create(dto);
   }
 
+  /*
+    Sin `@Roles`: por aqui pasa tambien cada uno editando su propia ficha, y
+    una lista de roles en la ruta no sabe distinguir "es el suyo" de "es el de
+    otro". El permiso lo decide el servicio, que si tiene delante a quien pide
+    y a quien se edita.
+  */
   @Patch(':id')
-  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({
+    summary: 'Edita la ficha de una persona',
+    description:
+      'La administracion a cualquiera; la direccion a todos menos a la administracion; quien manda en una sede, a los asesores y perfiles de consulta de la suya; y cada uno la propia. El perfil y la sede solo los mueve la administracion, y nunca sobre si misma.',
+  })
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateAgentDto) {
     return this.agents.update(id, dto);
   }
 
+  /**
+   * Restablecer la contrasena de OTRA persona.
+   *
+   * No pide la contrasena vieja porque quien restablece no la sabe. Por eso
+   * mismo no vale para uno mismo: para la propia esta
+   * `POST /auth/change-password`, que si la exige. El servicio rechaza el caso
+   * en vez de dejarlo a la buena fe de la pantalla.
+   */
   @Put(':id/password')
-  @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Restablece la contrasena de un asesor' })
+  @ApiOperation({ summary: 'Restablece la contrasena de otra persona' })
   async setPassword(
+    @CurrentUser() actor: AuthenticatedActor,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: SetPasswordDto,
   ) {
-    await this.agents.setPassword(id, dto.password);
+    await this.auth.resetPasswordFor(actor, id, dto.password);
     return { ok: true };
+  }
+
+  /*
+    Sin `@Roles` por lo mismo que el PATCH: cada uno cambia su propia foto, y
+    la ruta no distingue eso de cambiarle la foto a otro. Decide el servicio.
+  */
+  @Post(':id/photo')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiOperation({ summary: 'Cambia la foto de perfil' })
+  setPhoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.agents.setPhoto(id, file);
   }
 
   @Delete(':id')

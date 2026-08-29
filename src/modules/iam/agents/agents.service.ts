@@ -7,12 +7,17 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { AppConfigService } from '../../../shared/config/app-config.service';
+import { StorageService } from '../../media/storage.service';
 import { Agent } from '../domain/agent.entity';
 import { AgentShift } from '../domain/agent-shift.entity';
 import { AgentStatus, Role, seesAllBranches } from '../domain/role.enum';
-import { resolveBranch } from '../scope';
+import {
+  assertCanChangeRoleOrBranch,
+  assertCanEditAgent,
+  resolveBranch,
+} from '../scope';
 import { RequestContext } from '../../../shared/request-context/request-context';
 import type { CreateAgentDto, UpdateAgentDto } from './agents.dto';
 import type { SetShiftsDto } from './shifts.dto';
@@ -24,6 +29,7 @@ export class AgentsService {
     @InjectRepository(AgentShift)
     private readonly shifts: Repository<AgentShift>,
     private readonly config: AppConfigService,
+    private readonly storage: StorageService,
   ) {}
 
   /**
@@ -151,41 +157,34 @@ export class AgentsService {
     return this.repo.save(agent);
   }
 
+  /**
+   * Edita la ficha de una persona.
+   *
+   * Una sola puerta para los tres casos —la administracion editando a
+   * cualquiera, quien manda en una sede editando a los suyos, y cada uno
+   * editando lo suyo— porque son la misma operacion con distinto alcance.
+   * Tener una ruta aparte para "mi perfil" seria tener dos sitios donde
+   * comprobar lo mismo, y el dia que se toque uno solo, el otro es la fuga.
+   */
   async update(id: string, dto: UpdateAgentDto): Promise<Agent> {
     const agent = await this.findById(id);
-
-    /*
-     * Las mismas dos barreras que al crear, porque editar es la otra puerta a
-     * lo mismo: un coordinador no asciende a nadie ni se lleva a un asesor a
-     * otra oficina.
-     */
     const actor = RequestContext.actor();
-    if (actor?.role === Role.DIRECTOR) {
-      throw new ForbiddenException(
-        'La dirección no edita usuarios: pídeselo a la administración',
-      );
-    }
-    if (actor && !seesAllBranches(actor.role as Role)) {
-      // Tampoco sobre un igual o un superior: si el usuario editado no es
-      // asesor ni consulta, no es suyo aunque comparta oficina.
-      if (agent.role !== Role.AGENT && agent.role !== Role.VIEWER) {
-        throw new ForbiddenException(
-          'Solo puedes editar asesores y perfiles de consulta de tu sede',
-        );
-      }
-      if (dto.role && dto.role !== Role.AGENT && dto.role !== Role.VIEWER) {
-        throw new ForbiddenException(
-          'Desde una sede solo se asignan perfiles de asesor o consulta',
-        );
-      }
-      if (dto.branchId && dto.branchId !== actor.branchId) {
-        throw new ForbiddenException('No puedes mover usuarios a otra sede');
-      }
-      if (agent.branchId && agent.branchId !== actor.branchId) {
-        throw new ForbiddenException('Ese usuario pertenece a otra sede');
+
+    if (actor) {
+      assertCanEditAgent(actor, agent);
+      assertCanChangeRoleOrBranch(actor, agent, dto);
+
+      /*
+       * Nadie se da de baja ni se reactiva a si mismo: lo primero se hace sin
+       * querer y deja a la persona fuera sin que nadie se entere, y lo segundo
+       * convertiria una cuenta desactivada en reversible por su propio dueño.
+       */
+      if (actor.id === agent.id && dto.status && dto.status !== agent.status) {
+        throw new ForbiddenException('No puedes cambiar tu propio estado');
       }
     }
-    if (dto.email && dto.email.toLowerCase() !== agent.email) {
+
+    if (dto.email && dto.email.trim().toLowerCase() !== agent.email) {
       const email = dto.email.trim().toLowerCase();
       if (await this.repo.findOne({ where: { email } })) {
         throw new ConflictException(
@@ -194,6 +193,7 @@ export class AgentsService {
       }
       agent.email = email;
     }
+
     Object.assign(agent, {
       ...dto,
       email: agent.email,
@@ -201,14 +201,70 @@ export class AgentsService {
       // dejar al usuario sin oficina.
       branchId: dto.branchId ?? agent.branchId,
     });
-    return this.repo.save(agent);
+
+    /*
+     * El correo es la identidad para entrar, asi que su unicidad la sostiene
+     * un indice y no la comprobacion de arriba: entre leer y guardar caben dos
+     * peticiones a la vez. Cuando la carrera ocurre, el usuario tiene que leer
+     * el mismo mensaje que si hubiera llegado el segundo, no un 500.
+     */
+    try {
+      return await this.repo.save(agent);
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new ConflictException(
+          `Ya existe un asesor con el correo ${agent.email}`,
+        );
+      }
+      throw err;
+    }
   }
 
-  async setPassword(id: string, password: string): Promise<void> {
+  /**
+   * Escribe la contrasena. No comprueba permisos ni cierra sesiones a
+   * proposito: quien puede y que arrastra el cambio lo decide `AuthService`,
+   * que es quien tiene los refresh tokens delante.
+   *
+   * `mustChange` distingue los dos casos que llegan aqui. Si la persona eligio
+   * su clave, la sabe solo ella y no hay nada pendiente. Si se la puso otro
+   * —un restablecimiento—, esa clave la conocen dos, asi que la cuenta queda
+   * obligada a cambiarla en el siguiente acceso: hasta entonces la API no le
+   * deja hacer nada mas.
+   */
+  async setPassword(
+    id: string,
+    password: string,
+    mustChange = false,
+  ): Promise<void> {
     const agent = await this.findById(id);
     agent.passwordHash = await argon2.hash(password, { type: argon2.argon2id });
-    agent.mustSetPassword = false;
+    agent.mustSetPassword = mustChange;
     await this.repo.save(agent);
+  }
+
+  /**
+   * Cambia la foto de perfil.
+   *
+   * La imagen se recomprime y se guarda aqui —nunca se enlaza de fuera— y se
+   * conserva la variante pequeña: el avatar se pinta a 96 px como mucho, asi
+   * que servir la grande seria bajar medio megabyte para dibujar un circulo.
+   */
+  async setPhoto(id: string, file: Express.Multer.File): Promise<Agent> {
+    const agent = await this.findById(id);
+    const actor = RequestContext.actor();
+    if (actor) assertCanEditAgent(actor, agent);
+
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('No llego ninguna imagen');
+    }
+
+    const stored = await this.storage.saveImage(
+      file.buffer,
+      'agents',
+      file.originalname,
+    );
+    agent.photoUrl = stored.url;
+    return this.repo.save(agent);
   }
 
   async deactivate(id: string): Promise<Agent> {
@@ -286,4 +342,18 @@ export class AgentsService {
   async countShifts(): Promise<number> {
     return this.shifts.count();
   }
+}
+
+/**
+ * Si el fallo es el indice unico del correo.
+ *
+ * El filtro global ya convierte un 23505 en un 409, pero con el nombre del
+ * indice dentro: quien esta cambiando su correo no tiene por que leer
+ * «IDX_5b0dfe...». Se distingue aqui para poder decirlo con palabras.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    err instanceof QueryFailedError &&
+    (err.driverError as { code?: string } | undefined)?.code === '23505'
+  );
 }

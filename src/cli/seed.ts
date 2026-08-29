@@ -395,7 +395,23 @@ async function seedAdmin(db: DataSource) {
 
 // --- utilidades ------------------------------------------------------------
 
-/** Inserta o actualiza por clave primaria, en bloques para no saturar. */
+/**
+ * Inserta lo que falte y NO toca lo que ya existe.
+ *
+ * Antes actualizaba por clave primaria, y eso convertia el sembrado en un
+ * arma: los catalogos salen del volcado de WASI, asi que cada ejecucion
+ * reescribia los nombres con los del volcado y devolvia a la vida las filas
+ * que se habian dado de baja a mano. Paso de verdad —un `yarn seed` deshizo
+ * la homologacion entera: los municipios perdieron las tildes, 'Ph' y
+ * 'Terreno' volvieron al selector, y 'Ruitoque Resort' volvio a estar cinco
+ * veces— y nada fallo, porque un upsert no falla nunca.
+ *
+ * El sembrado existe para poblar una base vacia, no para imponer el volcado
+ * sobre un sistema que ya vive. Lo que la agencia corrige desde el panel manda
+ * sobre el fichero de origen, y por eso aqui solo se insertan las filas que no
+ * estan. Para reimportar de WASI a proposito esta `import:wasi`, que es un
+ * comando aparte y se ejecuta sabiendo lo que se hace.
+ */
 async function upsert<T extends object>(
   db: DataSource,
   entity: new () => T,
@@ -407,10 +423,18 @@ async function upsert<T extends object>(
     return;
   }
   const repo = db.getRepository(entity);
+  let insertadas = 0;
   for (let i = 0; i < rows.length; i += 500) {
-    await repo.upsert(rows.slice(i, i + 500), ['id']);
+    const bloque = rows.slice(i, i + 500);
+    const { identifiers } = await repo
+      .createQueryBuilder()
+      .insert()
+      .values(bloque)
+      .orIgnore()
+      .execute();
+    insertadas += identifiers.filter(Boolean).length;
   }
-  console.log(`  ${label}: ${rows.length}`);
+  console.log(`  ${label}: ${insertadas} nuevas de ${rows.length}`);
 }
 
 function dedupe<T extends { id: number }>(rows: T[]): T[] {

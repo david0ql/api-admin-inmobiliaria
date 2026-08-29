@@ -10,9 +10,9 @@ import {
   IsEnum,
   IsOptional,
   IsString,
-  IsUrl,
   IsUUID,
   Length,
+  Matches,
   MinLength,
 } from 'class-validator';
 import { AgentStatus, Role } from '../domain/role.enum';
@@ -52,10 +52,23 @@ export class CreateAgentDto {
   @IsBoolean()
   hasWhatsapp?: boolean;
 
-  @ApiPropertyOptional()
+  /**
+   * La foto de perfil, siempre alojada aqui.
+   *
+   * Solo se admiten rutas de `/media/`: las que devuelve `POST
+   * /agents/:id/photo`. Un `IsUrl` a secas dejaria apuntar el avatar a
+   * cualquier servidor ajeno, que es exactamente de donde la importacion tuvo
+   * que traerselas —images.wasi.co— y de paso un pixel espia de regalo en
+   * cada pantalla del panel.
+   *
+   * `null` borra la foto y deja las iniciales.
+   */
+  @ApiPropertyOptional({ example: '/media/agents/uuid-t.webp', nullable: true })
   @IsOptional()
-  @IsUrl()
-  photoUrl?: string;
+  @Matches(/^\/media\/[\w./-]+$/, {
+    message: 'La foto debe subirse desde el panel, no enlazarse de fuera',
+  })
+  photoUrl?: string | null;
 
   @ApiPropertyOptional({ enum: Role, default: Role.AGENT })
   @IsOptional()
