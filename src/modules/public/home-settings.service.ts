@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { publicProperty, type PublicPropertyShape } from './public-shapes';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Property } from '../properties/domain/property.entity';
@@ -59,7 +60,7 @@ export class HomeSettingsService {
    */
   async showcase(): Promise<{
     enabled: boolean;
-    properties: Property[];
+    properties: PublicPropertyShape[];
     autoplay: boolean;
     delayMs: number;
     effect: string;
@@ -82,7 +83,7 @@ export class HomeSettingsService {
 
     return {
       enabled: true,
-      properties: await this.elegidos(settings, take),
+      properties: (await this.elegidos(settings, take)).map(publicProperty),
       autoplay: settings.autoplay,
       delayMs: settings.delayMs,
       effect: settings.effect,

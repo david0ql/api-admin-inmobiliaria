@@ -35,8 +35,6 @@ export interface UnitTypeSummary {
   name: string;
   description: string | null;
   kind: UnitTypeKind | null;
-  /** El nombre, otra vez: es lo que la web lleva pintando como "tipología". */
-  unitType: string | null;
   propertyType: string | null;
   bedrooms: number | null;
   bathrooms: number | null;
@@ -120,7 +118,6 @@ export class UnitTypesService {
           name: tipologia.name,
           description: tipologia.description,
           kind: tipologia.kind,
-          unitType: tipologia.name,
           propertyType: datos.propertyType,
           /*
             El suelo no tiene alcobas, y las suyas vienen a cero en la ficha del
@@ -162,7 +159,6 @@ export class UnitTypesService {
         name: 'Sin clasificar',
         description: null,
         kind: null,
-        unitType: null,
         propertyType: sueltas.propertyType,
         bedrooms: sueltas.bedrooms,
         bathrooms: null,

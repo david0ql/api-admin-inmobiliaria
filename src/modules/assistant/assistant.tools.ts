@@ -564,11 +564,38 @@ export class AssistantTools {
 // --- mapeos -----------------------------------------------------------------
 
 /*
-  `Omit<…, 'unitType'>` porque la tarjeta no la usa y porque asi vale igual para
-  el inmueble del panel —que lleva la entidad— y para el publico, que lleva la
-  version recortada. Pedir `Property` obligaria a elegir uno de los dos.
+  Pide solo lo que pinta, y no `Property`, porque le llegan las dos formas: la
+  entidad del panel y el inmueble ya recortado de las rutas publicas.
 */
-function cardView(p: Omit<Property, 'unitType'>): PropertyCardView {
+type Pintable = Omit<
+  Pick<
+    Property,
+    | 'code'
+    | 'title'
+    | 'forRent'
+    | 'salePrice'
+    | 'rentPrice'
+    | 'area'
+    | 'builtArea'
+    | 'bedrooms'
+    | 'bathrooms'
+    | 'garages'
+    | 'availability'
+    | 'zone'
+  >,
+  never
+> & {
+  // Nulos porque la version publica los deja asi cuando la consulta no los
+  // trae; la tarjeta ya los pinta con `?.`.
+  propertyType: Property['propertyType'] | null;
+  city: Property['city'] | null;
+  currency: Property['currency'] | null;
+  // Solo se le piden portada y url: la entidad y la version publica coinciden
+  // en eso, y pedir `PropertyImage[]` dejaria fuera a la recortada.
+  images?: { url: string; isMain: boolean }[];
+};
+
+function cardView(p: Pintable): PropertyCardView {
   const cover =
     p.images?.find((img) => img.isMain)?.url ?? p.images?.[0]?.url ?? null;
   return {
@@ -677,7 +704,9 @@ function fullView(p: PublicProperty) {
  * Tampoco lo reconoce el patron de nginx que sirve la cabecera del inmueble,
  * asi que ademas se compartiria sin foto ni precio.
  */
-function propertyPath(p: Omit<Property, 'unitType'>): string {
+function propertyPath(
+  p: Pick<Pintable, 'code' | 'propertyType' | 'city' | 'zone'>,
+): string {
   const parts = [p.propertyType?.name, p.zone?.name ?? p.city?.name]
     .filter(Boolean)
     .map(slugify)

@@ -27,7 +27,12 @@ import {
 } from '../properties/domain/property.enums';
 import { FamiliesService } from '../properties/families.service';
 import { UnitTypesService } from '../properties/unit-types.service';
-import { UnitType, UnitTypeKind } from '../properties/domain/unit-type.entity';
+import {
+  publicFamily,
+  publicProperty,
+  type PublicFamilyRef,
+  type PublicPropertyShape,
+} from './public-shapes';
 import { normalizePhone } from '../crm/clients.service';
 import {
   Appointment,
@@ -110,37 +115,12 @@ export interface PublicAgent {
   photoUrl: string | null;
 }
 
-/**
- * La tipología tal y como puede verla un visitante.
- *
- * La entidad cruda no vale aqui por dos razones. Una: lleva `createdAt`,
- * `updatedAt`, `deletedAt` y `familyId`, que son cocina de la casa y no tienen
- * por que salir a la calle. Y dos: sus areas son `numeric`, y `numeric` llega
- * como texto —`"71.00"`—, de modo que el mismo concepto viajaba con dos formas
- * distintas segun por donde saliera; quien leyera `minArea` en el inmueble
- * encontraba `undefined` sin que nada se quejara. Aqui se sirve con los mismos
- * nombres y los mismos tipos que las filas de `unitTypes`.
- */
-export interface PublicUnitType {
-  id: string;
-  code: string;
-  name: string;
-  kind: UnitTypeKind;
-  bedrooms: number | null;
-  bathrooms: number | null;
-  garages: number | null;
-  minArea: number | null;
-  maxArea: number | null;
-  builtArea: number | null;
-}
-
-export type PublicProperty = Omit<Property, 'unitType'> & {
+export type PublicProperty = PublicPropertyShape & {
   agent: PublicAgent | null;
-  unitType: PublicUnitType | null;
 };
 
 /** Proyecto de cara al listado: la familia mas lo que resume su oferta. */
-export type PublicFamily = PropertyFamily & {
+export type PublicFamily = PublicFamilyRef & {
   unitTypeCount: number;
   availableUnits: number;
   fromPrice: number | null;
@@ -184,7 +164,7 @@ export class PublicService {
 
   async searchProperties(
     dto: SearchPublicPropertiesDto,
-  ): Promise<Paginated<Property>> {
+  ): Promise<Paginated<PublicPropertyShape>> {
     const page = dto.page ?? 1;
     const limit = Math.min(dto.limit ?? 24, 48);
 
@@ -246,7 +226,7 @@ export class PublicService {
       .take(limit)
       .getManyAndCount();
 
-    return new Paginated(data, total, page, limit);
+    return new Paginated(data.map(publicProperty), total, page, limit);
   }
 
   /**
@@ -424,7 +404,7 @@ export class PublicService {
     const { entities, raw } = await qb.getRawAndEntities();
 
     return entities.map((property, i) => ({
-      ...property,
+      ...publicProperty(property),
       distanceKm: Number((raw[i] as { distancia_km: string }).distancia_km),
     }));
   }
@@ -665,10 +645,10 @@ export class PublicService {
    */
   async propertyByCodeQuiet(code: string): Promise<PublicProperty> {
     const property = await this.loadPublicProperty(code);
-    return Object.assign(property, {
+    return {
+      ...publicProperty(property),
       agent: await this.publicAgent(property.assignedAgentId),
-      unitType: publicUnitType(property.unitType),
-    });
+    };
   }
 
   private async loadPublicProperty(code: string): Promise<Property> {
@@ -736,8 +716,11 @@ export class PublicService {
   }
 
   /** Otras unidades del mismo proyecto: mismo sitio, otra medida. */
-  siblingsOf(propertyId: string) {
-    return this.familiesService.siblingsOf(propertyId, { publicOnly: true });
+  async siblingsOf(propertyId: string): Promise<PublicPropertyShape[]> {
+    const hermanos = await this.familiesService.siblingsOf(propertyId, {
+      publicOnly: true,
+    });
+    return hermanos.map(publicProperty);
   }
 
   // --- proyectos ---------------------------------------------------------
@@ -782,7 +765,7 @@ export class PublicService {
           .map((u) => u.minPrice)
           .filter((p): p is number => p !== null);
         return {
-          ...family,
+          ...publicFamily(family)!,
           /*
             Cuenta TODAS las filas, incluida la de las unidades sin clasificar.
             La ficha del proyecto enseña esa fila como una opcion mas del
@@ -813,15 +796,11 @@ export class PublicService {
     ]);
 
     return {
-      family,
+      family: publicFamily(family),
       unitTypes,
-      // Las unidades salen con la misma tipología recortada que la ficha del
-      // inmueble: es el mismo concepto y tiene que tener la misma forma.
-      properties: properties.map((property) =>
-        Object.assign(property, {
-          unitType: publicUnitType(property.unitType),
-        }),
-      ),
+      // Las unidades salen recortadas igual que la ficha del inmueble: es el
+      // mismo concepto y tiene que tener la misma forma.
+      properties: properties.map(publicProperty),
       amenities: await this.amenidades(properties.map((p) => p.id)),
     };
   }
@@ -1242,35 +1221,4 @@ function tooSoon(leadHours: number): string {
   if (leadHours <= 24) return 'Las visitas se piden con un dia de antelacion.';
   const dias = Math.round(leadHours / 24);
   return `Las visitas de este inmueble se piden con ${dias} dias de antelacion.`;
-}
-
-/**
- * La tipología recortada para la web.
- *
- * Para el suelo, alcobas, baños y garajes salen en `null` y no en cero: un lote
- * no tiene cero alcobas, es que la pregunta no aplica, y un cero se pintaria
- * como "0 alcobas".
- */
-function publicUnitType(unitType: UnitType | null): PublicUnitType | null {
-  if (!unitType) return null;
-  const auto = unitType.kind === UnitTypeKind.AUTO;
-  return {
-    id: unitType.id,
-    code: unitType.code,
-    name: unitType.name,
-    kind: unitType.kind,
-    bedrooms: auto ? null : unitType.bedrooms,
-    bathrooms: auto ? null : unitType.bathrooms,
-    garages: auto ? null : unitType.garages,
-    minArea: numero(unitType.areaMin),
-    maxArea: numero(unitType.areaMax),
-    builtArea: numero(unitType.builtArea),
-  };
-}
-
-/** `numeric` llega como texto: la web espera un numero o nada. */
-function numero(value: string | null): number | null {
-  if (value === null) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
 }
