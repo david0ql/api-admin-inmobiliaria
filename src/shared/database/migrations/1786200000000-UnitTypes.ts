@@ -9,10 +9,12 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * Esta migración hace tres cosas y en este orden:
  *  1. Crea la tabla y el enlace desde el inmueble.
- *  2. Agrupa lo que está en el mismo sitio y no tiene proyecto —92 grupos, 246
- *     inmuebles que comparten barrio y dirección exacta— creando un proyecto
- *     por grupo. Nacen SIN publicar: son edificios deducidos de los datos, y
- *     que aparezcan en la web es una decisión de la agencia, no mía.
+ *  2. Agrupa lo que está en el mismo sitio y no tiene proyecto —101 grupos,
+ *     279 inmuebles que comparten barrio y dirección— creando un proyecto por
+ *     grupo. La dirección no se compara como está escrita sino reducida a su
+ *     forma canónica, porque viene a mano y el mismo portal aparece de tres
+ *     maneras. Nacen SIN publicar: son edificios deducidos de los datos, y que
+ *     aparezcan en la web es una decisión de la agencia, no mía.
  *  3. Escribe las tipologías de cada proyecto y asigna cada inmueble a la
  *     suya.
  */
@@ -236,7 +238,9 @@ export class UnitTypes1786200000000 implements MigrationInterface {
 
   public async down(q: QueryRunner): Promise<void> {
     await q.query(`ALTER TABLE "property" ADD COLUMN "unit_type" varchar(80)`);
-    await q.query(`ALTER TABLE "property" DROP COLUMN IF EXISTS "unit_type_id"`);
+    await q.query(
+      `ALTER TABLE "property" DROP COLUMN IF EXISTS "unit_type_id"`,
+    );
     await q.query(`DROP TABLE IF EXISTS "unit_type"`);
     await q.query(`DROP TYPE IF EXISTS "unit_type_kind_enum"`);
     // Los proyectos deducidos se quedan: borrarlos se llevaria por delante
@@ -317,7 +321,9 @@ function agrupar(unidades: Unidad[]): Unidad[][] {
 
   // Primero las que mas unidades tienen: es el orden en que la agencia las
   // enseña y el que hace que A sea la tipologia principal del proyecto.
-  return grupos.sort((a, b) => b.length - a.length || (a[0].area ?? 0) - (b[0].area ?? 0));
+  return grupos.sort(
+    (a, b) => b.length - a.length || (a[0].area ?? 0) - (b[0].area ?? 0),
+  );
 }
 
 function etiquetaTramo(min: number | null, max: number | null): string {
@@ -359,7 +365,7 @@ const VIAS: [RegExp, string][] = [
   [/^(calle|clle|cll|cle|cl)$/, 'calle'],
   [/^(avenida|avda|aven|ave|av)$/, 'avenida'],
   [/^(transversal|transv|tranv|trans|tv|tr)$/, 'transversal'],
-  [/^(diagonal|diag|diag|dg)$/, 'diagonal'],
+  [/^(diagonal|diag|dg)$/, 'diagonal'],
   [/^(circunvalar|circunv|circ)$/, 'circunvalar'],
   [/^(autopista|autop|auto)$/, 'autopista'],
   [/^(kilometro|kilometros|kilom|klm|km)$/, 'km'],
@@ -391,10 +397,7 @@ const PEGADAS =
  * dos edificios y juntarlos sería peor que dejarlos separados.
  */
 function canonica(direccion: string): string {
-  let texto = direccion
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase();
+  let texto = direccion.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
   // "4,6" es un decimal, no una enumeración: los km de las vías rurales.
   texto = texto.replace(/(\d),(\d)/g, '$1.$2');
