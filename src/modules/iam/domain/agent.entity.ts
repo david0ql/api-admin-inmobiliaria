@@ -1,8 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Column, Entity, Index, OneToMany } from 'typeorm';
+import {
+  Column,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+} from 'typeorm';
 import { BaseEntity } from '../../../shared/database/base.entity';
 import { AgentStatus, Role } from './role.enum';
 import { AgentShift } from './agent-shift.entity';
+import type { Branch } from '../../branches/domain/branch.entity';
 
 /**
  * Asesor / usuario interno. Se llama `agent` y no `user` porque en el dominio
@@ -56,6 +64,27 @@ export class Agent extends BaseEntity {
   @ApiProperty({ enum: Role })
   @Column({ type: 'enum', enum: Role, default: Role.AGENT })
   role: Role;
+
+  /**
+   * La sede donde trabaja. Una y solo una.
+   *
+   * Nula solo para quien no pertenece a ninguna porque las ve todas —el
+   * administrador y la direccion de operaciones—. Para los demas es
+   * obligatoria: un coordinador sin sede no coordina nada y un asesor sin sede
+   * no sabria donde publicar.
+   */
+  @ApiPropertyOptional({ nullable: true })
+  @Column({ name: 'branch_id', type: 'uuid', nullable: true })
+  branchId: string | null;
+
+  /*
+    La relacion se declara por nombre y el tipo se importa como `type`: la sede
+    apunta a sus agentes y el agente a su sede, y con dos imports normales eso
+    es un ciclo que revienta al arrancar.
+  */
+  @ManyToOne('Branch', { nullable: true, onDelete: 'RESTRICT' })
+  @JoinColumn({ name: 'branch_id' })
+  branch?: Branch;
 
   @ApiProperty({ enum: AgentStatus })
   @Index()

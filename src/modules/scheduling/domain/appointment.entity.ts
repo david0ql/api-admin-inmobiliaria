@@ -73,6 +73,15 @@ export class Appointment extends BaseEntity {
   @Column({ name: 'agent_id', type: 'uuid' })
   agentId: string;
 
+  /**
+   * Sede de la cita. Nullable porque la agenda se puede alimentar desde la web
+   * publica, donde todavia no se sabe que oficina la atiende: se rellena al
+   * asignarle asesor.
+   */
+  @ApiPropertyOptional({ nullable: true, format: 'uuid' })
+  @Column({ name: 'branch_id', type: 'uuid', nullable: true })
+  branchId: string | null;
+
   @ManyToOne(() => Client, {
     onDelete: 'SET NULL',
     nullable: true,

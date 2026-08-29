@@ -141,6 +141,13 @@ export class PropertyFamily extends BaseEntity {
   @Column({ name: 'parent_id', type: 'uuid', nullable: true })
   parentId: string | null;
 
+  // --- sede --------------------------------------------------------------
+
+  /** La oficina que comercializa el proyecto. Obligatoria. */
+  @ApiProperty({ format: 'uuid' })
+  @Column({ name: 'branch_id', type: 'uuid' })
+  branchId: string;
+
   @TreeChildren()
   children: PropertyFamily[];
 

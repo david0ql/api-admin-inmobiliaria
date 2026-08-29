@@ -7,6 +7,8 @@ export interface AuthenticatedActor {
   fullName: string;
   /** Sigue con la clave generica: la API le queda cerrada hasta cambiarla. */
   mustSetPassword: boolean;
+  /** La sede a la que pertenece. Nula en quien las ve todas. */
+  branchId?: string | null;
 }
 
 declare global {
@@ -21,6 +23,15 @@ declare global {
 export interface RequestStore {
   actor?: AuthenticatedActor;
   requestId: string;
+  /**
+   * La sede sobre la que trabaja ESTA peticion.
+   *
+   * Para casi todo el equipo es la suya y no hay nada que elegir. Para quien
+   * ve varias, es la que tenga puesta en el selector; `null` significa "todas"
+   * y solo puede llegar a valer null si el rol lo permite —de eso se encarga
+   * el interceptor, no cada consulta—.
+   */
+  branchId?: string | null;
 }
 
 const storage = new AsyncLocalStorage<RequestStore>();
@@ -42,5 +53,13 @@ export const RequestContext = {
   setActor(actor: AuthenticatedActor): void {
     const store = storage.getStore();
     if (store) store.actor = actor;
+  },
+  /** La sede de esta peticion; `null` es "todas las sedes". */
+  branchId(): string | null | undefined {
+    return storage.getStore()?.branchId;
+  },
+  setBranchId(branchId: string | null): void {
+    const store = storage.getStore();
+    if (store) store.branchId = branchId;
   },
 };

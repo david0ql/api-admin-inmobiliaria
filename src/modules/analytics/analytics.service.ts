@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { Role, seesEverything } from '../iam/domain/role.enum';
+import { RequestContext } from '../../shared/request-context/request-context';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
 
 // Las filas de agregacion no corresponden a ninguna entidad, asi que se
@@ -113,18 +114,44 @@ export class AnalyticsService {
     return await this.db.query(sql, params);
   }
 
-  /** Filtro de visibilidad: un AGENT solo ve sus numeros. */
+  /**
+   * Filtro de visibilidad de una consulta agregada.
+   *
+   * Son dos recortes que se suman y que responden a preguntas distintas: un
+   * AGENT solo cuenta lo suyo (`ownerColumn`), y quien pertenece a una sede
+   * solo cuenta lo de su oficina (`branchColumn`). Esto ultimo es lo que hace
+   * util el panel de un coordinador: sin ello lee las cifras de la empresa
+   * entera y cree que son las de su sede.
+   *
+   * Los parametros van posicionales porque estas consultas son SQL a pelo: se
+   * numeran segun se anaden, y por eso se devuelven junto al fragmento.
+   */
   private scope(
     actor: AuthenticatedActor,
-    column: string,
+    ownerColumn: string,
+    branchColumn?: string,
   ): { sql: string; params: unknown[] } {
-    if (seesEverything(actor.role as Role)) return { sql: '', params: [] };
-    return { sql: ` AND ${column} = $1`, params: [actor.id] };
+    const params: unknown[] = [];
+    let sql = '';
+
+    if (!seesEverything(actor.role as Role)) {
+      params.push(actor.id);
+      sql += ` AND ${ownerColumn} = $${params.length}`;
+    }
+
+    const branchId = RequestContext.branchId();
+    if (branchId && branchColumn) {
+      params.push(branchId);
+      sql += ` AND ${branchColumn} = $${params.length}`;
+    }
+
+    return { sql, params };
   }
 
   async overview(actor: AuthenticatedActor) {
-    const s = this.scope(actor, 'p.assigned_agent_id');
-    const c = this.scope(actor, 'c.assigned_agent_id');
+    const s = this.scope(actor, 'p.assigned_agent_id', 'p.branch_id');
+    const c = this.scope(actor, 'c.assigned_agent_id', 'c.branch_id');
+    const a = this.scope(actor, 'a.agent_id', 'a.branch_id');
 
     const [inventory] = await this.rows<InventorySummary>(
       `SELECT
@@ -169,8 +196,8 @@ export class AnalyticsService {
          COUNT(*) FILTER (WHERE a.status = 'NO_SHOW'
                             AND a.starts_at > now() - interval '90 days')::int AS no_shows_90d
        FROM appointment a
-       WHERE a.deleted_at IS NULL${seesEverything(actor.role as Role) ? '' : ' AND a.agent_id = $1'}`,
-      seesEverything(actor.role as Role) ? [] : [actor.id],
+       WHERE a.deleted_at IS NULL${a.sql}`,
+      a.params,
     );
 
     return { inventory, clients, appointments };
@@ -180,7 +207,7 @@ export class AnalyticsService {
   async inventoryByCity(
     actor: AuthenticatedActor,
   ): Promise<CityInventoryRow[]> {
-    const s = this.scope(actor, 'p.assigned_agent_id');
+    const s = this.scope(actor, 'p.assigned_agent_id', 'p.branch_id');
     return this.rows<CityInventoryRow>(
       `SELECT
          ci.id                                                       AS city_id,
@@ -200,7 +227,7 @@ export class AnalyticsService {
   async inventoryByType(
     actor: AuthenticatedActor,
   ): Promise<TypeInventoryRow[]> {
-    const s = this.scope(actor, 'p.assigned_agent_id');
+    const s = this.scope(actor, 'p.assigned_agent_id', 'p.branch_id');
     return this.rows<TypeInventoryRow>(
       `SELECT
          pt.id                                                       AS type_id,
@@ -233,6 +260,11 @@ export class AnalyticsService {
       params.push(actor.id);
       where += ` AND c.assigned_agent_id = $${params.length}`;
     }
+    const sede = RequestContext.branchId();
+    if (sede) {
+      params.push(sede);
+      where += ` AND c.branch_id = $${params.length}`;
+    }
 
     return this.rows<FunnelRow>(
       `SELECT
@@ -260,7 +292,7 @@ export class AnalyticsService {
    * cuantos de ellos convierten decide si ese contrato se renueva.
    */
   async sources(actor: AuthenticatedActor): Promise<SourceRow[]> {
-    const c = this.scope(actor, 'c.assigned_agent_id');
+    const c = this.scope(actor, 'c.assigned_agent_id', 'c.branch_id');
     return this.rows<SourceRow>(
       `SELECT
          COALESCE(ls.name, 'Sin origen')                             AS source,
@@ -284,6 +316,9 @@ export class AnalyticsService {
 
   /** Carga y resultados por asesor. Solo lo ve quien coordina. */
   async agentWorkload(): Promise<AgentWorkloadRow[]> {
+    // El coordinador compara a los SUYOS. Basta con acotar el equipo: cada
+    // asesor pertenece a una sola sede y sus cifras se cuentan por asesor.
+    const sede = RequestContext.branchId();
     return this.rows<AgentWorkloadRow>(
       `SELECT
          a.id                                                        AS agent_id,
@@ -309,14 +344,15 @@ export class AnalyticsService {
             WHERE ac.agent_id = a.id AND ac.deleted_at IS NULL
               AND ac.occurred_at > now() - interval '30 days')::int          AS activities_30d
        FROM agent a
-       WHERE a.deleted_at IS NULL
+       WHERE a.deleted_at IS NULL${sede ? ' AND a.branch_id = $1' : ''}
        ORDER BY clients DESC`,
+      sede ? [sede] : [],
     );
   }
 
   /** Inmuebles con mas visitas y sin ningun interesado: el anuncio no convierte. */
   async attentionNeeded(actor: AuthenticatedActor): Promise<AttentionRow[]> {
-    const s = this.scope(actor, 'p.assigned_agent_id');
+    const s = this.scope(actor, 'p.assigned_agent_id', 'p.branch_id');
     return this.rows<AttentionRow>(
       `SELECT
          p.id, p.code, p.title, p.visits,

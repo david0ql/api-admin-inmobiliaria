@@ -4,9 +4,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Repository, type SelectQueryBuilder } from 'typeorm';
 import { Paginated } from '../../shared/http/paginated';
+import { RequestContext } from '../../shared/request-context/request-context';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
+import { assertSameBranch, resolveBranch } from '../iam/scope';
 import { ActivitiesService } from '../activity/activities.service';
 import { ActivityType } from '../activity/domain/activity.entity';
 import { Client } from '../crm/domain/client.entity';
@@ -133,6 +135,7 @@ export class CreditRequestsService {
     const limit = dto.limit ?? 25;
 
     const qb = this.repo.createQueryBuilder('request');
+    this.acotarBandeja(qb);
     if (dto.status)
       qb.andWhere('request.status = :status', { status: dto.status });
     if (dto.q?.trim()) {
@@ -161,19 +164,42 @@ export class CreditRequestsService {
   }
 
   async findById(id: string): Promise<CreditRequest> {
-    const request = await this.repo.findOne({ where: { id } });
+    const qb = this.repo
+      .createQueryBuilder('request')
+      .where('request.id = :id', { id });
+    this.acotarBandeja(qb);
+
+    const request = await qb.getOne();
     if (!request) throw new NotFoundException(`Consulta ${id} no encontrada`);
     return request;
   }
 
   async counts(): Promise<Record<string, number>> {
-    const rows = await this.repo
+    const qb = this.repo
       .createQueryBuilder('request')
       .select('request.status', 'status')
       .addSelect('COUNT(*)::int', 'total')
-      .groupBy('request.status')
-      .getRawMany<{ status: string; total: number }>();
+      .groupBy('request.status');
+    this.acotarBandeja(qb);
+
+    const rows = await qb.getRawMany<{ status: string; total: number }>();
     return Object.fromEntries(rows.map((row) => [row.status, row.total]));
+  }
+
+  /**
+   * La bandeja de una sede: lo suyo mas lo que aun no es de nadie.
+   *
+   * Igual que en consignaciones: la consulta entra por la web sin sesion y por
+   * tanto sin sede. Dejarlas fuera de todas las bandejas seria condenarlas a no
+   * contestarse.
+   */
+  private acotarBandeja(qb: SelectQueryBuilder<CreditRequest>): void {
+    const branchId = RequestContext.branchId();
+    if (!branchId) return;
+    qb.andWhere(
+      '(request.branch_id = :sedeBandeja OR request.branch_id IS NULL)',
+      { sedeBandeja: branchId },
+    );
   }
 
   async review(
@@ -182,12 +208,15 @@ export class CreditRequestsService {
     actor: AuthenticatedActor,
   ): Promise<CreditRequest> {
     const request = await this.findById(id);
+    assertSameBranch(actor, request.branchId);
 
     request.status = dto.status;
     request.institution = dto.institution?.trim() ?? request.institution;
     request.resolution = dto.resolution?.trim() ?? request.resolution;
     request.reviewedByAgentId = actor.id;
     request.reviewedAt = new Date();
+    // Quien la atiende se la lleva a su sede; ver la nota de consignaciones.
+    request.branchId ??= RequestContext.branchId() ?? actor.branchId ?? null;
     return this.repo.save(request);
   }
 
@@ -200,6 +229,9 @@ export class CreditRequestsService {
     actor: AuthenticatedActor,
   ): Promise<{ clientId: string }> {
     const request = await this.findById(id);
+    assertSameBranch(actor, request.branchId);
+    // El cliente que se crea tiene sede obligatoria: la de quien convierte.
+    const branchId = resolveBranch(actor, request.branchId);
     if (request.clientId) {
       throw new BadRequestException(
         `Esta consulta ya esta en el embudo como cliente ${request.clientId}`,
@@ -221,9 +253,11 @@ export class CreditRequestsService {
 
     return this.dataSource.transaction(async (manager) => {
       const phoneNormalized = normalizePhone(request.phone);
+      // Se busca dentro de la sede: reutilizar la ficha de otra oficina le
+      // quitaria el cliente a quien lo trabaja.
       let client = phoneNormalized
         ? await manager.findOne(Client, {
-            where: { phoneNormalized },
+            where: { phoneNormalized, branchId },
             loadEagerRelations: false,
           })
         : null;
@@ -231,6 +265,7 @@ export class CreditRequestsService {
       if (!client) {
         client = await manager.save(
           manager.create(Client, {
+            branchId,
             firstName: request.firstName,
             lastName: request.lastName,
             email: request.email,
@@ -279,6 +314,7 @@ export class CreditRequestsService {
         { id },
         {
           status: CreditRequestStatus.REVIEWING,
+          branchId,
           clientId: client.id,
           assignedAgentId: actor.id,
           reviewedByAgentId: actor.id,

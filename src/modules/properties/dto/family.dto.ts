@@ -106,6 +106,15 @@ export class CreateFamilyDto {
   @IsOptional()
   @IsUUID()
   parentId?: string;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Sede. Solo la puede elegir quien ve todas; al resto se le impone la suya',
+  })
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
 }
 
 export class UpdateFamilyDto extends PartialType(CreateFamilyDto) {}

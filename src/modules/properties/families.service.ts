@@ -1,12 +1,20 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository, TreeRepository } from 'typeorm';
+import { Repository, TreeRepository } from 'typeorm';
 import { CatalogService } from '../catalog/catalog.service';
+import {
+  applyBranchScope,
+  assertSameBranch,
+  resolveBranch,
+} from '../iam/scope';
+import { RequestContext } from '../../shared/request-context/request-context';
+import type { AuthenticatedActor } from '../../shared/request-context/request-context';
 import { Property } from './domain/property.entity';
 import { PropertyFamily } from './domain/property-family.entity';
 import { Availability, PublicationStatus } from './domain/property.enums';
@@ -61,15 +69,25 @@ export class FamiliesService {
       qb.andWhere('family.status = :status', { status: dto.status });
     if (dto.publishedOnly === 'true') qb.andWhere('family.published = true');
     if (dto.rootsOnly === 'true') qb.andWhere('family.parent_id IS NULL');
+    applyBranchScope(qb, 'family.branch_id');
 
     return qb.orderBy('family.name', 'ASC').getMany();
   }
 
+  /**
+   * El proyecto, si la sede en curso lo alcanza.
+   *
+   * Va por QueryBuilder para poder acotar por sede: desde la web publica no hay
+   * sede en el contexto y no filtra nada, que es lo que debe pasar ahi.
+   */
   async findById(id: string): Promise<PropertyFamily> {
-    const family = await this.repo.findOne({
-      where: { id },
-      relations: { children: true },
-    });
+    const qb = this.repo
+      .createQueryBuilder('family')
+      .leftJoinAndSelect('family.children', 'children')
+      .where('family.id = :id', { id });
+    applyBranchScope(qb, 'family.branch_id');
+
+    const family = await qb.getOne();
     if (!family) throw new NotFoundException(`Proyecto ${id} no encontrado`);
     return family;
   }
@@ -84,9 +102,19 @@ export class FamiliesService {
     return family;
   }
 
-  /** Árbol completo, para el selector jerárquico del formulario. */
+  /**
+   * Arbol completo, para el selector jerarquico del formulario.
+   *
+   * `findTrees` no admite condiciones, asi que la sede se poda despues sobre el
+   * resultado. Es la unica consulta que se filtra en memoria y se puede: no
+   * pagina ni cuenta nada —es un desplegable—, que es lo que hacia peligroso
+   * filtrar fuera de SQL en los listados.
+   */
   async trees(): Promise<PropertyFamily[]> {
-    return this.tree.findTrees();
+    const arboles = await this.tree.findTrees();
+    const branchId = RequestContext.branchId();
+    if (!branchId) return arboles;
+    return podar(arboles, branchId);
   }
 
   /**
@@ -121,6 +149,9 @@ export class FamiliesService {
         ids: ids.length ? ids : [family.id],
       });
 
+    // La web publica ensena el proyecto entero; el panel, solo lo de su sede.
+    if (!publicOnly) applyBranchScope(qb, 'property.branch_id');
+
     if (publicOnly) {
       qb.andWhere('property.publication_status IN (:...visible)', {
         visible: [PublicationStatus.ACTIVE, PublicationStatus.OUTSTANDING],
@@ -129,12 +160,14 @@ export class FamiliesService {
       });
     }
 
-    return qb
-      .orderBy('property.area', 'ASC')
-      .addOrderBy('property.sale_price', 'ASC')
-      // La principal primero: es la que se enseña al abrir la unidad.
-      .addOrderBy('images.is_main', 'DESC')
-      .getMany();
+    return (
+      qb
+        .orderBy('property.area', 'ASC')
+        .addOrderBy('property.sale_price', 'ASC')
+        // La principal primero: es la que se enseña al abrir la unidad.
+        .addOrderBy('images.is_main', 'DESC')
+        .getMany()
+    );
   }
 
   /**
@@ -174,6 +207,8 @@ export class FamiliesService {
       .addGroupBy('propertyType.name')
       .addGroupBy('property.bedrooms')
       .orderBy('"minArea"', 'ASC');
+
+    if (!publicOnly) applyBranchScope(qb, 'property.branch_id');
 
     if (publicOnly) {
       qb.andWhere('property.publication_status IN (:...visible)', {
@@ -217,6 +252,7 @@ export class FamiliesService {
   // --- escritura ---------------------------------------------------------
 
   async create(dto: CreateFamilyDto): Promise<PropertyFamily> {
+    const branchId = resolveBranch(this.actor(), dto.branchId);
     const slug = dto.slug?.trim() || slugify(dto.name);
     if (
       await this.repo.findOne({ where: [{ name: dto.name.trim() }, { slug }] })
@@ -235,6 +271,7 @@ export class FamiliesService {
     return this.repo.save(
       this.repo.create({
         ...dto,
+        branchId,
         name: dto.name.trim(),
         slug,
         parent,
@@ -251,6 +288,7 @@ export class FamiliesService {
       loadEagerRelations: false,
     });
     if (!family) throw new NotFoundException(`Proyecto ${id} no encontrado`);
+    assertSameBranch(this.actor(), family.branchId);
 
     if (dto.parentId) {
       if (dto.parentId === id) {
@@ -274,6 +312,11 @@ export class FamiliesService {
     // `parentId` ya se aplico arriba con validacion de ciclos.
     const { latitude, longitude, ...rest } = dto;
     delete (rest as { parentId?: string }).parentId;
+    // Mover el proyecto de oficina es cosa de quien ve todas las sedes.
+    if (dto.branchId && dto.branchId !== family.branchId) {
+      family.branchId = resolveBranch(this.actor(), dto.branchId);
+    }
+    delete (rest as { branchId?: string }).branchId;
     Object.assign(family, rest);
     if (latitude !== undefined) family.latitude = latitude?.toString() ?? null;
     if (longitude !== undefined)
@@ -286,6 +329,7 @@ export class FamiliesService {
 
   async remove(id: string): Promise<void> {
     const family = await this.findById(id);
+    assertSameBranch(this.actor(), family.branchId);
     const units = await this.properties.count({ where: { familyId: id } });
     if (units > 0) {
       throw new BadRequestException(
@@ -307,10 +351,18 @@ export class FamiliesService {
     familyId: string | null,
     unitType?: string | null,
   ): Promise<void> {
+    // `findById` ya acota por sede: colgar un inmueble de un proyecto de otra
+    // oficina devuelve "no encontrado" y no un enlace cruzado.
     if (familyId) await this.findById(familyId);
-    const exists = await this.properties.exists({ where: { id: propertyId } });
-    if (!exists)
+
+    const property = await this.properties.findOne({
+      where: { id: propertyId },
+      loadEagerRelations: false,
+      select: { id: true, branchId: true },
+    });
+    if (!property)
       throw new NotFoundException(`Inmueble ${propertyId} no encontrado`);
+    assertSameBranch(this.actor(), property.branchId);
 
     await this.properties.update(
       { id: propertyId },
@@ -320,16 +372,43 @@ export class FamiliesService {
 
   /** Inmuebles sin proyecto, para el flujo de alta masiva. */
   async unassigned(limit = 50): Promise<Property[]> {
-    return this.properties.find({
-      where: { familyId: IsNull() },
-      take: limit,
-      order: { createdAt: 'DESC' },
-    });
+    const qb = this.properties
+      .createQueryBuilder('property')
+      .where('property.family_id IS NULL');
+    applyBranchScope(qb, 'property.branch_id');
+    return qb.orderBy('property.created_at', 'DESC').take(limit).getMany();
   }
 
   async count(): Promise<number> {
-    return this.repo.count();
+    const qb = this.repo.createQueryBuilder('family');
+    applyBranchScope(qb, 'family.branch_id');
+    return qb.getCount();
   }
+
+  /**
+   * Quien esta pidiendo esto.
+   *
+   * El controlador de proyectos no arrastra el actor por la firma —nunca lo
+   * necesito— y anadirlo a seis metodos para dos comprobaciones no compensa:
+   * el contexto de peticion ya lo tiene, igual que lo tiene el filtro por sede.
+   */
+  private actor(): AuthenticatedActor {
+    const actor = RequestContext.actor();
+    if (!actor) {
+      throw new ForbiddenException('Esta operacion requiere sesion');
+    }
+    return actor;
+  }
+}
+
+/** Deja solo las ramas de una sede, conservando la jerarquia. */
+function podar(familias: PropertyFamily[], branchId: string): PropertyFamily[] {
+  return familias
+    .filter((familia) => familia.branchId === branchId)
+    .map((familia) => {
+      familia.children = podar(familia.children ?? [], branchId);
+      return familia;
+    });
 }
 
 function num(value: string | number | null | undefined): number | null {

@@ -9,8 +9,11 @@ import { Paginated } from '../../shared/http/paginated';
 import { ClientType } from '../catalog/domain/catalogs.entity';
 import { AgentsService } from '../iam/agents/agents.service';
 import {
+  applyBranchScope,
   applyOwnershipScope,
   assertCanMutate,
+  assertSameBranch,
+  resolveBranch,
   resolveOwner,
 } from '../iam/scope';
 import { PropertiesService } from '../properties/properties.service';
@@ -115,6 +118,7 @@ export class ClientsService {
     }
 
     applyOwnershipScope(qb, actor, 'client.assigned_agent_id');
+    applyBranchScope(qb, 'client.branch_id');
 
     qb.orderBy('client.updated_at', 'DESC').addOrderBy('client.id', 'DESC');
 
@@ -136,14 +140,20 @@ export class ClientsService {
       .leftJoinAndSelect('client.types', 'types')
       .where('client.id = :id', { id });
     applyOwnershipScope(qb, actor, 'client.assigned_agent_id');
+    applyBranchScope(qb, 'client.branch_id');
 
     const client = await qb.getOne();
     if (!client) throw new NotFoundException(`Cliente ${id} no encontrado`);
     return client;
   }
 
+  /** Existe y lo alcanza la sede en curso; ver `PropertiesService.exists`. */
   async exists(id: string): Promise<boolean> {
-    return this.repo.exists({ where: { id } });
+    const qb = this.repo
+      .createQueryBuilder('client')
+      .where('client.id = :id', { id });
+    applyBranchScope(qb, 'client.branch_id');
+    return (await qb.getCount()) > 0;
   }
 
   // --- escritura ---------------------------------------------------------
@@ -157,11 +167,15 @@ export class ClientsService {
       dto.stageId,
     );
     const assignedAgentId = resolveOwner(actor, dto.assignedAgentId);
-    await this.agents.findById(assignedAgentId);
+    const asesor = await this.agents.findById(assignedAgentId);
+    const branchId = resolveBranch(actor, dto.branchId);
+    // No se le cuelga un cliente a un asesor de otra sede.
+    assertSameBranch(actor, asesor.branchId);
 
     const { typeIds, ...rest } = dto;
     const client = this.repo.create({
       ...rest,
+      branchId,
       pipelineId,
       stageId,
       stageChangedAt: new Date(),
@@ -187,10 +201,17 @@ export class ClientsService {
       loadEagerRelations: false,
     });
     if (!client) throw new NotFoundException(`Cliente ${id} no encontrado`);
+    assertSameBranch(actor, client.branchId);
     assertCanMutate(actor, client.assignedAgentId, 'este cliente');
 
-    const { typeIds, stageId, pipelineId, assignedAgentId, ...rest } = dto;
+    const { typeIds, stageId, pipelineId, assignedAgentId, branchId, ...rest } =
+      dto;
     Object.assign(client, rest);
+
+    // Pasar un cliente a otra oficina solo lo hace quien ve todas.
+    if (branchId && branchId !== client.branchId) {
+      client.branchId = resolveBranch(actor, branchId);
+    }
 
     if (typeIds) {
       client.types = typeIds.length
@@ -218,6 +239,7 @@ export class ClientsService {
   async remove(id: string, actor: AuthenticatedActor): Promise<void> {
     const client = await this.repo.findOne({ where: { id } });
     if (!client) throw new NotFoundException(`Cliente ${id} no encontrado`);
+    assertSameBranch(actor, client.branchId);
     assertCanMutate(actor, client.assignedAgentId, 'este cliente');
     await this.repo.softDelete(id);
   }
@@ -236,6 +258,7 @@ export class ClientsService {
       relations: { stage: true },
     });
     if (!client) throw new NotFoundException(`Cliente ${id} no encontrado`);
+    assertSameBranch(actor, client.branchId);
     assertCanMutate(actor, client.assignedAgentId, 'este cliente');
 
     const stage = await this.pipelines.findStage(dto.stageId);
@@ -270,8 +293,10 @@ export class ClientsService {
   ): Promise<Client> {
     const client = await this.repo.findOne({ where: { id } });
     if (!client) throw new NotFoundException(`Cliente ${id} no encontrado`);
+    assertSameBranch(actor, client.branchId);
     assertCanMutate(actor, client.assignedAgentId, 'este cliente');
-    await this.agents.findById(dto.agentId);
+    const destino = await this.agents.findById(dto.agentId);
+    assertSameBranch(actor, destino.branchId);
 
     await this.repo.update({ id }, { assignedAgentId: dto.agentId });
     return this.findOne(id, actor);
@@ -312,6 +337,7 @@ export class ClientsService {
     const client = await this.repo.findOne({ where: { id: clientId } });
     if (!client)
       throw new NotFoundException(`Cliente ${clientId} no encontrado`);
+    assertSameBranch(actor, client.branchId);
     assertCanMutate(actor, client.assignedAgentId, 'este cliente');
 
     if (!(await this.properties.exists(dto.propertyId))) {
@@ -352,6 +378,7 @@ export class ClientsService {
     const client = await this.repo.findOne({ where: { id: clientId } });
     if (!client)
       throw new NotFoundException(`Cliente ${clientId} no encontrado`);
+    assertSameBranch(actor, client.branchId);
     assertCanMutate(actor, client.assignedAgentId, 'este cliente');
 
     const interest = await this.interests.findOne({
@@ -372,7 +399,7 @@ export class ClientsService {
   async findDuplicates(
     limit = 50,
   ): Promise<{ key: string; kind: 'phone' | 'email'; clients: Client[] }[]> {
-    const byPhone = await this.repo
+    const phoneQb = this.repo
       .createQueryBuilder('client')
       .select('client.phone_normalized', 'key')
       .addSelect('COUNT(*)::int', 'count')
@@ -381,10 +408,13 @@ export class ClientsService {
       .groupBy('client.phone_normalized')
       .having('COUNT(*) > 1')
       .orderBy('count', 'DESC')
-      .limit(limit)
-      .getRawMany<{ key: string; count: number }>();
+      .limit(limit);
+    // El duplicado se busca DENTRO de la sede: dos oficinas pueden trabajar al
+    // mismo propietario y eso no es un duplicado que haya que fusionar.
+    applyBranchScope(phoneQb, 'client.branch_id');
+    const byPhone = await phoneQb.getRawMany<{ key: string; count: number }>();
 
-    const byEmail = await this.repo
+    const emailQb = this.repo
       .createQueryBuilder('client')
       .select('LOWER(client.email)', 'key')
       .addSelect('COUNT(*)::int', 'count')
@@ -392,8 +422,9 @@ export class ClientsService {
       .groupBy('LOWER(client.email)')
       .having('COUNT(*) > 1')
       .orderBy('count', 'DESC')
-      .limit(limit)
-      .getRawMany<{ key: string; count: number }>();
+      .limit(limit);
+    applyBranchScope(emailQb, 'client.branch_id');
+    const byEmail = await emailQb.getRawMany<{ key: string; count: number }>();
 
     const groups: {
       key: string;
@@ -402,25 +433,20 @@ export class ClientsService {
     }[] = [];
 
     for (const row of byPhone) {
-      groups.push({
-        key: row.key,
-        kind: 'phone',
-        clients: await this.repo.find({
-          where: { phoneNormalized: row.key },
-          order: { createdAt: 'ASC' },
-        }),
-      });
+      const qb = this.repo
+        .createQueryBuilder('client')
+        .where('client.phone_normalized = :phone', { phone: row.key })
+        .orderBy('client.created_at', 'ASC');
+      applyBranchScope(qb, 'client.branch_id');
+      groups.push({ key: row.key, kind: 'phone', clients: await qb.getMany() });
     }
     for (const row of byEmail) {
-      groups.push({
-        key: row.key,
-        kind: 'email',
-        clients: await this.repo
-          .createQueryBuilder('client')
-          .where('LOWER(client.email) = :email', { email: row.key })
-          .orderBy('client.created_at', 'ASC')
-          .getMany(),
-      });
+      const qb = this.repo
+        .createQueryBuilder('client')
+        .where('LOWER(client.email) = :email', { email: row.key })
+        .orderBy('client.created_at', 'ASC');
+      applyBranchScope(qb, 'client.branch_id');
+      groups.push({ key: row.key, kind: 'email', clients: await qb.getMany() });
     }
     return groups;
   }
@@ -440,6 +466,7 @@ export class ClientsService {
     });
     if (!primary)
       throw new NotFoundException(`Cliente ${primaryId} no encontrado`);
+    assertSameBranch(actor, primary.branchId);
     assertCanMutate(actor, primary.assignedAgentId, 'este cliente');
 
     const ids = duplicateIds.filter((id) => id !== primaryId);
@@ -454,6 +481,9 @@ export class ClientsService {
       if (duplicates.length !== ids.length) {
         throw new NotFoundException('Alguno de los duplicados no existe');
       }
+      // Fusionar es borrar: un duplicado de otra oficina desapareceria de su
+      // panel sin que alli nadie se entere.
+      for (const dup of duplicates) assertSameBranch(actor, dup.branchId);
 
       for (const dup of duplicates) {
         primary.email ??= dup.email;

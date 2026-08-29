@@ -11,6 +11,7 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  IsUUID,
   Length,
   MinLength,
 } from 'class-validator';
@@ -60,6 +61,18 @@ export class CreateAgentDto {
   @IsOptional()
   @IsEnum(Role)
   role?: Role;
+
+  /**
+   * La sede a la que pertenece.
+   *
+   * Opcional en el DTO y no en el dominio: quien crea desde una sede no la
+   * manda —se le impone la suya— y ADMIN y DIRECTOR no tienen ninguna. Quien
+   * decide de verdad es el servicio.
+   */
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
 }
 
 export class UpdateAgentDto extends PartialType(

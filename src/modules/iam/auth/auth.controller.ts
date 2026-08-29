@@ -67,6 +67,10 @@ export class AuthController {
       fullName: agent.fullName,
       role: agent.role,
       status: agent.status,
+      // El panel necesita saber de que sede es para pintarla y para no
+      // ofrecer un selector a quien no tiene nada que elegir. Es nula en
+      // ADMIN y DIRECTOR, que las ven todas.
+      branchId: agent.branchId,
       photoUrl: agent.photoUrl,
       cellPhone: agent.cellPhone,
       hasWhatsapp: agent.hasWhatsapp,

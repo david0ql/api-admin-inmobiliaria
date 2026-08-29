@@ -135,6 +135,14 @@ export class Client extends BaseEntity {
   @Column({ name: 'assigned_agent_id', type: 'uuid', nullable: true })
   assignedAgentId: string | null;
 
+  /**
+   * La sede que trabaja al cliente. Obligatoria, como en el inmueble: un lead
+   * sin oficina no lo ve nadie y se queda sin llamar.
+   */
+  @ApiProperty({ format: 'uuid' })
+  @Column({ name: 'branch_id', type: 'uuid' })
+  branchId: string;
+
   // --- notas y preferencias ----------------------------------------------
 
   @ApiPropertyOptional({ nullable: true, description: 'Que busca el cliente' })

@@ -5,6 +5,7 @@ import { normalizePhone } from '../crm/clients.service';
 import { LeadSource } from '../crm/domain/lead-source.entity';
 import { Client } from '../crm/domain/client.entity';
 import { PipelinesService } from '../crm/pipelines.service';
+import { defaultBranchId } from '../branches/default-branch';
 import { ChatConversation } from './domain/chat-conversation.entity';
 import { ChatMessage } from './domain/chat-message.entity';
 import type { IdentifyDto } from './dto/assistant.dto';
@@ -118,6 +119,9 @@ export class ConversationsService {
 
     return this.clients.save(
       this.clients.create({
+        // El chat es la web publica: no hay sesion ni sede, asi que el lead
+        // cae en la principal.
+        branchId: await defaultBranchId(this.clients.manager),
         firstName: dto.firstName.trim(),
         lastName: dto.lastName.trim(),
         email,

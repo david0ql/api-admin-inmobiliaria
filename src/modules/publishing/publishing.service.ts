@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Portal } from '../catalog/domain/catalogs.entity';
+import { applyBranchScope } from '../iam/scope';
 import { PropertiesService } from '../properties/properties.service';
 import {
   PropertyPublication,
@@ -86,6 +87,11 @@ export class PublishingService {
     portalId: number,
     dto: UpdatePublicationDto,
   ): Promise<PropertyPublication> {
+    // `exists` mira la sede: sin esto se podria marcar como publicado el
+    // anuncio de un inmueble de otra oficina conociendo solo su id.
+    if (!(await this.properties.exists(propertyId))) {
+      throw new NotFoundException(`Inmueble ${propertyId} no encontrado`);
+    }
     const publication = await this.repo.findOne({
       where: { propertyId, portalId },
     });
@@ -120,9 +126,12 @@ export class PublishingService {
       published: number;
     }[]
   > {
-    return this.repo
+    const qb = this.repo
       .createQueryBuilder('pub')
       .innerJoin('pub.portal', 'portal')
+      // La cobertura es de los inmuebles de la sede: si no se une con
+      // `property`, un coordinador ve el gasto en portales de toda la empresa.
+      .innerJoin('property', 'property', 'property.id = pub.property_id')
       .select('portal.id', 'portalId')
       .addSelect('portal.name', 'portal')
       .addSelect('portal.paid', 'paid')
@@ -134,8 +143,9 @@ export class PublishingService {
       .groupBy('portal.id')
       .addGroupBy('portal.name')
       .addGroupBy('portal.paid')
-      .orderBy('total', 'DESC')
-      .getRawMany();
+      .orderBy('total', 'DESC');
+    applyBranchScope(qb, 'property.branch_id');
+    return qb.getRawMany();
   }
 
   /**
@@ -145,7 +155,7 @@ export class PublishingService {
   async unpublishedActiveProperties(): Promise<
     { id: string; code: string; title: string }[]
   > {
-    return this.repo.manager
+    const qb = this.repo.manager
       .createQueryBuilder()
       .select(['p.id AS id', 'p.code AS code', 'p.title AS title'])
       .from('property', 'p')
@@ -154,7 +164,8 @@ export class PublishingService {
       .andWhere(
         'NOT EXISTS (SELECT 1 FROM property_publication pp WHERE pp.property_id = p.id)',
       )
-      .orderBy('p.created_at', 'DESC')
-      .getRawMany();
+      .orderBy('p.created_at', 'DESC');
+    applyBranchScope(qb, 'p.branch_id');
+    return qb.getRawMany();
   }
 }

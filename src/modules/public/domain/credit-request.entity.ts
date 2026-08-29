@@ -238,6 +238,14 @@ export class CreditRequest extends BaseEntity {
   @Column({ name: 'reviewed_by_agent_id', type: 'uuid', nullable: true })
   reviewedByAgentId: string | null;
 
+  /**
+   * Sede que atiende la consulta. Nullable por lo mismo que la consignacion:
+   * entra por el formulario publico, sin sesion.
+   */
+  @ApiPropertyOptional({ nullable: true, format: 'uuid' })
+  @Column({ name: 'branch_id', type: 'uuid', nullable: true })
+  branchId: string | null;
+
   @ApiPropertyOptional({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   reviewedAt: Date | null;

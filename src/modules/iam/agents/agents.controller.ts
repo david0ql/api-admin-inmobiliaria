@@ -38,8 +38,12 @@ export class AgentsController {
   }
 
   @Post()
-  @Roles(Role.ADMIN)
-  @ApiOperation({ summary: 'Da de alta un asesor (solo ADMIN)' })
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({
+    summary: 'Da de alta un usuario',
+    description:
+      'El administrador da de alta a cualquiera; un coordinador solo asesores y perfiles de consulta, y siempre en su propia sede. Lo impone el servicio, no el formulario.',
+  })
   create(@Body() dto: CreateAgentDto) {
     return this.agents.create(dto);
   }

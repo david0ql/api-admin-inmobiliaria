@@ -6,6 +6,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { DataSource, IsNull, LessThan, Repository } from 'typeorm';
 import { AppConfigService } from '../../shared/config/app-config.service';
 import { Client } from '../crm/domain/client.entity';
+import { defaultBranchId } from '../branches/default-branch';
 import { LeadSource } from '../crm/domain/lead-source.entity';
 import { PipelinesService } from '../crm/pipelines.service';
 import { normalizePhone } from '../crm/clients.service';
@@ -160,6 +161,9 @@ export class PortalAuthService {
 
     await this.clients.save(
       this.clients.create({
+        // Quien se registra desde fuera cae en la sede principal; de ahi lo
+        // reparte quien atienda su solicitud.
+        branchId: await defaultBranchId(this.clients.manager),
         firstName: dto.firstName.trim(),
         lastName: dto.lastName.trim(),
         email,

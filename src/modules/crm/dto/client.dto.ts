@@ -107,6 +107,15 @@ export class CreateClientDto {
   @IsUUID()
   assignedAgentId?: string;
 
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Sede. Solo la puede elegir quien ve todas; al resto se le impone la suya',
+  })
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
+
   @ApiPropertyOptional({ description: 'Que busca el cliente' })
   @IsOptional()
   @IsString()

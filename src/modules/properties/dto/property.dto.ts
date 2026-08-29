@@ -230,6 +230,15 @@ export class CreatePropertyDto {
   assignedAgentId?: string;
 
   @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Sede. Solo la puede elegir quien ve todas; al resto se le impone la suya',
+  })
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
+
+  @ApiPropertyOptional({
     type: [Number],
     description: 'Ids del catalogo de caracteristicas',
   })

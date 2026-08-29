@@ -41,6 +41,9 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       role: agent.role,
       fullName: agent.fullName,
       mustSetPassword: agent.mustSetPassword,
+      // Se relee de la base y no del token: cambiarle la sede a alguien tiene
+      // que surtir efecto ya, no cuando caduque su sesion.
+      branchId: agent.branchId ?? null,
     };
   }
 }

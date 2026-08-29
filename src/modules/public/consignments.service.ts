@@ -4,9 +4,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Repository, type SelectQueryBuilder } from 'typeorm';
 import { Paginated } from '../../shared/http/paginated';
+import { RequestContext } from '../../shared/request-context/request-context';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
+import { assertSameBranch, resolveBranch } from '../iam/scope';
 import { ActivitiesService } from '../activity/activities.service';
 import { ActivityType } from '../activity/domain/activity.entity';
 import { CatalogService } from '../catalog/catalog.service';
@@ -72,6 +74,7 @@ export class ConsignmentsService {
     const limit = dto.limit ?? 25;
 
     const qb = this.repo.createQueryBuilder('request');
+    this.acotarBandeja(qb);
     if (dto.status)
       qb.andWhere('request.status = :status', { status: dto.status });
     if (dto.q?.trim()) {
@@ -100,19 +103,44 @@ export class ConsignmentsService {
   }
 
   async findById(id: string): Promise<ConsignmentRequest> {
-    const request = await this.repo.findOne({ where: { id } });
+    const qb = this.repo
+      .createQueryBuilder('request')
+      .where('request.id = :id', { id });
+    this.acotarBandeja(qb);
+
+    const request = await qb.getOne();
     if (!request) throw new NotFoundException(`Solicitud ${id} no encontrada`);
     return request;
   }
 
   async counts(): Promise<Record<string, number>> {
-    const rows = await this.repo
+    const qb = this.repo
       .createQueryBuilder('request')
       .select('request.status', 'status')
       .addSelect('COUNT(*)::int', 'total')
-      .groupBy('request.status')
-      .getRawMany<{ status: string; total: number }>();
+      .groupBy('request.status');
+    this.acotarBandeja(qb);
+
+    const rows = await qb.getRawMany<{ status: string; total: number }>();
     return Object.fromEntries(rows.map((row) => [row.status, row.total]));
+  }
+
+  /**
+   * La bandeja de una sede: lo suyo mas lo que todavia no es de nadie.
+   *
+   * Las solicitudes entran por la web, donde no hay sesion ni sede: nacen sin
+   * ella. Si el filtro fuera solo `branch_id = mi sede`, esas quedarian
+   * invisibles para todas las oficinas y solo las veria la direccion — es
+   * decir, se quedarian sin atender. Se reparten en cuanto alguien las revisa:
+   * ahi se les sella la sede.
+   */
+  private acotarBandeja(qb: SelectQueryBuilder<ConsignmentRequest>): void {
+    const branchId = RequestContext.branchId();
+    if (!branchId) return;
+    qb.andWhere(
+      '(request.branch_id = :sedeBandeja OR request.branch_id IS NULL)',
+      { sedeBandeja: branchId },
+    );
   }
 
   async review(
@@ -125,10 +153,17 @@ export class ConsignmentsService {
       throw new BadRequestException('La solicitud ya se convirtio en inmueble');
     }
 
+    assertSameBranch(actor, request.branchId);
+
     request.status = dto.status;
     request.resolution = dto.resolution?.trim() ?? request.resolution;
     request.reviewedByAgentId = actor.id;
     request.reviewedAt = new Date();
+    // Quien la revisa se la lleva a su sede: a partir de ahi es de esa oficina
+    // y deja de estar en la bandeja comun. Si quien revisa no tiene ninguna
+    // puesta —direccion mirando "todas"— se deja como estaba: obligarle a
+    // elegir sede solo para cambiar un estado seria absurdo.
+    request.branchId ??= RequestContext.branchId() ?? actor.branchId ?? null;
     return this.repo.save(request);
   }
 
@@ -142,6 +177,10 @@ export class ConsignmentsService {
     actor: AuthenticatedActor,
   ): Promise<{ propertyId: string; clientId: string }> {
     const request = await this.findById(id);
+    assertSameBranch(actor, request.branchId);
+    // El inmueble y el propietario nacen en la sede de quien la acepta: si la
+    // solicitud ya venia marcada, en la suya.
+    const branchId = resolveBranch(actor, request.branchId);
     if (request.propertyId) {
       throw new BadRequestException(
         `Esta solicitud ya se convirtio en el inmueble ${request.propertyId}`,
@@ -182,6 +221,7 @@ export class ConsignmentsService {
       const property = await manager.save(
         manager.create(Property, {
           code,
+          branchId,
           title:
             `${request.propertyTypeName.toUpperCase()} EN VENTA EN ${request.complexName.toUpperCase()} ` +
             `${request.neighborhood.toUpperCase()} ${request.cityName.toUpperCase()}`.slice(
@@ -265,9 +305,11 @@ export class ConsignmentsService {
           })
         : null;
 
+      // El propietario se busca DENTRO de la sede: reutilizar la ficha de otra
+      // oficina se la llevaria de su cartera sin avisar.
       client ??= phoneNormalized
         ? await manager.findOne(Client, {
-            where: { phoneNormalized },
+            where: { phoneNormalized, branchId },
             loadEagerRelations: false,
           })
         : null;
@@ -275,6 +317,7 @@ export class ConsignmentsService {
       if (!client) {
         client = await manager.save(
           manager.create(Client, {
+            branchId,
             firstName: request.ownerFirstName,
             lastName: request.ownerLastName,
             email: request.ownerEmail,
@@ -315,6 +358,7 @@ export class ConsignmentsService {
         { id },
         {
           status: ConsignmentStatus.ACCEPTED,
+          branchId,
           propertyId: property.id,
           clientId: client.id,
           reviewedByAgentId: actor.id,

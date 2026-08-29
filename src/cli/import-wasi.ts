@@ -61,6 +61,7 @@ import {
   str,
   year,
 } from './wasi-dump';
+import { defaultBranchId } from '../modules/branches/default-branch';
 
 loadDotenv();
 const env = validateEnv(process.env);
@@ -290,6 +291,9 @@ async function importProperties(
 ): Promise<Map<number, string>> {
   const repo = db.getRepository(Property);
   const assignments = db.getRepository(PropertyAssignment);
+  // El volcado de WASI es de cuando la agencia era una sola oficina: todo lo
+  // que entra por aqui es de la sede principal.
+  const branchId = await defaultBranchId(db.manager);
 
   const cities = new Set(
     (await db.getRepository(City).find({ select: { id: true } })).map(
@@ -421,6 +425,7 @@ async function importProperties(
       toInsert.push(
         repo.create({
           ...data,
+          branchId,
           features,
           createdAt: date(row.created_at) ?? undefined,
         }),
@@ -738,6 +743,7 @@ async function importClients(
   agents: Map<number, string>,
 ): Promise<Map<number, string>> {
   const repo = db.getRepository(Client);
+  const branchId = await defaultBranchId(db.manager);
   const stages = await db.getRepository(PipelineStage).find();
   const pipelines = await db.getRepository(Pipeline).find();
   const sources = await db.getRepository(LeadSource).find();
@@ -841,6 +847,7 @@ async function importClients(
       toInsert.push(
         repo.create({
           ...data,
+          branchId,
           types,
           createdAt: date(row.created_at) ?? undefined,
         }),

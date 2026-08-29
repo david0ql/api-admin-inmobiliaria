@@ -314,6 +314,15 @@ export class ConsignmentRequest extends BaseEntity {
   @Column({ name: 'reviewed_by_agent_id', type: 'uuid', nullable: true })
   reviewedByAgentId: string | null;
 
+  /**
+   * Sede que atiende la solicitud. Nullable: la manda un propietario desde la
+   * web y ahi no hay sesion que diga de que oficina es. La bandeja sin sede la
+   * ve quien ve todas, y se sella al revisarla o aceptarla.
+   */
+  @ApiPropertyOptional({ nullable: true, format: 'uuid' })
+  @Column({ name: 'branch_id', type: 'uuid', nullable: true })
+  branchId: string | null;
+
   @ApiPropertyOptional({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   reviewedAt: Date | null;

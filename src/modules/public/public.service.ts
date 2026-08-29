@@ -1001,6 +1001,9 @@ export class PublicService {
         });
         client = await manager.save(
           manager.create(Client, {
+            // El lead cae en la sede del inmueble que vino a ver: es la
+            // oficina que lo va a atender, y la columna no admite nulos.
+            branchId: property.branchId,
             firstName: dto.firstName.trim(),
             lastName: dto.lastName?.trim() ?? null,
             cellPhone: dto.phone.trim(),
@@ -1044,6 +1047,7 @@ export class PublicService {
 
       const appointment = await manager.save(
         manager.create(Appointment, {
+          branchId: property.branchId,
           title: `Visita ${property.code} — ${dto.firstName.trim()}`,
           type: AppointmentType.VISIT,
           status: AppointmentStatus.SCHEDULED,

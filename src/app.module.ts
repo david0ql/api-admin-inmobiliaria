@@ -1,5 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppCacheModule } from './shared/cache/cache.module';
 import { SharedModule } from './shared/shared.module';
@@ -20,6 +20,8 @@ import { SchedulingModule } from './modules/scheduling/scheduling.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { PublicModule } from './modules/public/public.module';
 import { I18nModule } from './modules/i18n/i18n.module';
+import { BranchesModule } from './modules/branches/branches.module';
+import { BranchScopeInterceptor } from './modules/iam/branch-scope.interceptor';
 import { PortalModule } from './modules/portal/portal.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
 
@@ -39,11 +41,18 @@ import { AssistantModule } from './modules/assistant/assistant.module';
     AnalyticsModule,
     PublicModule,
     I18nModule,
+    BranchesModule,
     PortalModule,
     AssistantModule,
   ],
   controllers: [HealthController],
   providers: [
+    /*
+      La sede de cada peticion se decide una vez, al entrar, y no en cada
+      consulta: basta que una de las cuarenta se olvide para que se filtren
+      datos de otra oficina.
+    */
+    { provide: APP_INTERCEPTOR, useClass: BranchScopeInterceptor },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     // El orden importa: se limita el trafico, se autentica, se exige haber
     // cambiado la clave inicial y por ultimo se comprueba el rol.

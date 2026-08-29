@@ -367,6 +367,21 @@ export class Property extends BaseEntity {
   @Column({ name: 'assigned_agent_id', type: 'uuid', nullable: true })
   assignedAgentId: string | null;
 
+  // --- sede --------------------------------------------------------------
+
+  /**
+   * La oficina que lleva el inmueble. Obligatoria.
+   *
+   * Sin sede el inmueble no aparece en ningun panel acotado —ni en el de su
+   * propia oficina— y se convierte en inventario invisible: por eso la columna
+   * es NOT NULL en base y aqui no se declara nullable. No se modela la relacion
+   * con `Branch`: para filtrar basta la clave, y una relacion eager mas
+   * multiplicaria los joins de todos los listados.
+   */
+  @ApiProperty({ format: 'uuid' })
+  @Column({ name: 'branch_id', type: 'uuid' })
+  branchId: string;
+
   // --- caracteristicas ---------------------------------------------------
 
   @ManyToMany(() => Feature)

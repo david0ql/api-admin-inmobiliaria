@@ -5,18 +5,21 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Paginated } from '../../shared/http/paginated';
 import { ActivitiesService } from '../activity/activities.service';
 import { Activity, ActivityType } from '../activity/domain/activity.entity';
 import { AgentsService } from '../iam/agents/agents.service';
 import {
+  applyBranchScope,
   applyOwnershipScope,
   assertCanMutate,
+  assertSameBranch,
   resolveOwner,
 } from '../iam/scope';
 import { ClientsService } from '../crm/clients.service';
 import { PropertiesService } from '../properties/properties.service';
+import { RequestContext } from '../../shared/request-context/request-context';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
 import {
   Appointment,
@@ -85,6 +88,7 @@ export class SchedulingService {
     if (dto.type) qb.andWhere('appointment.type = :type', { type: dto.type });
 
     applyOwnershipScope(qb, actor, 'appointment.agent_id');
+    applyBranchScope(qb, 'appointment.branch_id');
     qb.orderBy('appointment.starts_at', 'ASC');
 
     const [data, total] = await qb
@@ -102,6 +106,7 @@ export class SchedulingService {
       .leftJoinAndSelect('appointment.property', 'property')
       .where('appointment.id = :id', { id });
     applyOwnershipScope(qb, actor, 'appointment.agent_id');
+    applyBranchScope(qb, 'appointment.branch_id');
 
     const appointment = await qb.getOne();
     if (!appointment) throw new NotFoundException(`Cita ${id} no encontrada`);
@@ -139,6 +144,7 @@ export class SchedulingService {
     if (dto.agentId)
       qb.andWhere('appointment.agent_id = :agentId', { agentId: dto.agentId });
     applyOwnershipScope(qb, actor, 'appointment.agent_id');
+    applyBranchScope(qb, 'appointment.branch_id');
 
     const appointments = await qb
       .orderBy('appointment.starts_at', 'ASC')
@@ -170,11 +176,7 @@ export class SchedulingService {
 
     const [activities, appointments] = await Promise.all([
       this.activities.listForClient(clientId, limit),
-      this.repo.find({
-        where: { clientId },
-        order: { startsAt: 'DESC' },
-        take: limit,
-      }),
+      this.citasDelCliente(clientId, limit),
     ]);
 
     const entries = [
@@ -211,7 +213,11 @@ export class SchedulingService {
     actor: AuthenticatedActor,
   ): Promise<Appointment> {
     const agentId = resolveOwner(actor, dto.agentId);
-    await this.agents.findById(agentId);
+    const agent = await this.agents.findById(agentId);
+    const branchId = this.sedeDeLaCita(agent.branchId);
+    // Agendar a un asesor de otra oficina es meterle trabajo en su agenda sin
+    // que su coordinador lo sepa.
+    assertSameBranch(actor, branchId);
 
     const startsAt = new Date(dto.startsAt);
     const endsAt = new Date(dto.endsAt);
@@ -237,6 +243,7 @@ export class SchedulingService {
         startsAt,
         endsAt,
         agentId,
+        branchId,
         clientId: dto.clientId ?? null,
         propertyId: dto.propertyId ?? null,
         location: dto.location ?? null,
@@ -260,6 +267,7 @@ export class SchedulingService {
       loadEagerRelations: false,
     });
     if (!appointment) throw new NotFoundException(`Cita ${id} no encontrada`);
+    assertSameBranch(actor, appointment.branchId);
     assertCanMutate(actor, appointment.agentId, 'esta cita');
 
     const startsAt = dto.startsAt
@@ -271,7 +279,11 @@ export class SchedulingService {
     if (dto.startsAt || dto.endsAt) this.assertValidRange(startsAt, endsAt);
     if (dto.agentId && dto.agentId !== appointment.agentId) {
       resolveOwner(actor, dto.agentId);
-      await this.agents.findById(dto.agentId);
+      const nuevo = await this.agents.findById(dto.agentId);
+      // La cita se va con el asesor: si pasa a otra oficina, la sede cambia.
+      const sede = nuevo.branchId ?? appointment.branchId;
+      assertSameBranch(actor, sede);
+      appointment.branchId = sede;
     }
 
     const reschedules = dto.startsAt || dto.endsAt || dto.agentId;
@@ -282,6 +294,7 @@ export class SchedulingService {
 
     Object.assign(appointment, {
       ...dto,
+      branchId: appointment.branchId,
       startsAt,
       endsAt,
       agentId,
@@ -304,6 +317,7 @@ export class SchedulingService {
   ): Promise<Appointment> {
     const appointment = await this.repo.findOne({ where: { id } });
     if (!appointment) throw new NotFoundException(`Cita ${id} no encontrada`);
+    assertSameBranch(actor, appointment.branchId);
     assertCanMutate(actor, appointment.agentId, 'esta cita');
 
     const allowed = [
@@ -354,6 +368,7 @@ export class SchedulingService {
   async remove(id: string, actor: AuthenticatedActor): Promise<void> {
     const appointment = await this.repo.findOne({ where: { id } });
     if (!appointment) throw new NotFoundException(`Cita ${id} no encontrada`);
+    assertSameBranch(actor, appointment.branchId);
     assertCanMutate(actor, appointment.agentId, 'esta cita');
     await this.repo.softDelete(id);
   }
@@ -362,10 +377,35 @@ export class SchedulingService {
   async agenda(agentId: string, day: string): Promise<Appointment[]> {
     const from = new Date(`${day}T00:00:00.000Z`);
     const to = new Date(`${day}T23:59:59.999Z`);
-    return this.repo.find({
-      where: { agentId, startsAt: Between(from, to) },
-      order: { startsAt: 'ASC' },
-    });
+    const qb = this.repo
+      .createQueryBuilder('appointment')
+      .where('appointment.agent_id = :agentId', { agentId })
+      .andWhere('appointment.starts_at BETWEEN :from AND :to', { from, to });
+    applyBranchScope(qb, 'appointment.branch_id');
+    return qb.orderBy('appointment.starts_at', 'ASC').getMany();
+  }
+
+  /** Las citas del cliente que la sede en curso puede ver. */
+  private async citasDelCliente(
+    clientId: string,
+    limit: number,
+  ): Promise<Appointment[]> {
+    const qb = this.repo
+      .createQueryBuilder('appointment')
+      .where('appointment.client_id = :clientId', { clientId });
+    applyBranchScope(qb, 'appointment.branch_id');
+    return qb.orderBy('appointment.starts_at', 'DESC').take(limit).getMany();
+  }
+
+  /**
+   * La sede de una cita nueva.
+   *
+   * La cita vive donde trabaja quien la atiende. Si ese asesor no pertenece a
+   * ninguna —administracion o direccion, que las ven todas— se usa la del
+   * selector, y puede quedar nula: por eso la columna lo permite.
+   */
+  private sedeDeLaCita(sedeDelAsesor: string | null): string | null {
+    return sedeDelAsesor ?? RequestContext.branchId() ?? null;
   }
 
   // --- reglas ------------------------------------------------------------

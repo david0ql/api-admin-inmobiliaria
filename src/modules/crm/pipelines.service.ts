@@ -7,7 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Pipeline, PipelineStage } from './domain/pipeline.entity';
 import { Client } from './domain/client.entity';
-import { applyOwnershipScope } from '../iam/scope';
+import { applyBranchScope, applyOwnershipScope } from '../iam/scope';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
 
 export interface KanbanStage {
@@ -87,6 +87,9 @@ export class PipelinesService {
       .where('client.pipeline_id = :pipelineId', { pipelineId: pipeline.id })
       .groupBy('client.stage_id');
     applyOwnershipScope(qb, actor, 'client.assigned_agent_id');
+    // El tablero es el de SU sede: si no, el coordinador cuenta columnas con
+    // clientes que no puede ni abrir.
+    applyBranchScope(qb, 'client.branch_id');
 
     const rows = await qb.getRawMany<{ stageId: string; count: number }>();
     const counts = new Map(rows.map((r) => [r.stageId, r.count]));
@@ -145,6 +148,11 @@ export class PipelinesService {
 
   async deleteStage(id: string): Promise<void> {
     const stage = await this.findStage(id);
+    /*
+      Aqui NO se acota por sede a proposito: las etapas son de la empresa, no de
+      una oficina, y borrar una que otra sede sigue usando dejaria a sus
+      clientes apuntando a nada. La cuenta tiene que ser la de todos.
+    */
     const inUse = await this.clients.count({ where: { stageId: id } });
     if (inUse > 0) {
       throw new BadRequestException(
