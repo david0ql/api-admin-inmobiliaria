@@ -563,7 +563,12 @@ export class AssistantTools {
 
 // --- mapeos -----------------------------------------------------------------
 
-function cardView(p: Property): PropertyCardView {
+/*
+  `Omit<…, 'unitType'>` porque la tarjeta no la usa y porque asi vale igual para
+  el inmueble del panel —que lleva la entidad— y para el publico, que lleva la
+  version recortada. Pedir `Property` obligaria a elegir uno de los dos.
+*/
+function cardView(p: Omit<Property, 'unitType'>): PropertyCardView {
   const cover =
     p.images?.find((img) => img.isMain)?.url ?? p.images?.[0]?.url ?? null;
   return {
@@ -672,7 +677,7 @@ function fullView(p: PublicProperty) {
  * Tampoco lo reconoce el patron de nginx que sirve la cabecera del inmueble,
  * asi que ademas se compartiria sin foto ni precio.
  */
-function propertyPath(p: Property): string {
+function propertyPath(p: Omit<Property, 'unitType'>): string {
   const parts = [p.propertyType?.name, p.zone?.name ?? p.city?.name]
     .filter(Boolean)
     .map(slugify)

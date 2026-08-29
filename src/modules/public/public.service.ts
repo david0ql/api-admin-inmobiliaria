@@ -27,6 +27,7 @@ import {
 } from '../properties/domain/property.enums';
 import { FamiliesService } from '../properties/families.service';
 import { UnitTypesService } from '../properties/unit-types.service';
+import { UnitType, UnitTypeKind } from '../properties/domain/unit-type.entity';
 import { normalizePhone } from '../crm/clients.service';
 import {
   Appointment,
@@ -109,7 +110,34 @@ export interface PublicAgent {
   photoUrl: string | null;
 }
 
-export type PublicProperty = Property & { agent: PublicAgent | null };
+/**
+ * La tipología tal y como puede verla un visitante.
+ *
+ * La entidad cruda no vale aqui por dos razones. Una: lleva `createdAt`,
+ * `updatedAt`, `deletedAt` y `familyId`, que son cocina de la casa y no tienen
+ * por que salir a la calle. Y dos: sus areas son `numeric`, y `numeric` llega
+ * como texto —`"71.00"`—, de modo que el mismo concepto viajaba con dos formas
+ * distintas segun por donde saliera; quien leyera `minArea` en el inmueble
+ * encontraba `undefined` sin que nada se quejara. Aqui se sirve con los mismos
+ * nombres y los mismos tipos que las filas de `unitTypes`.
+ */
+export interface PublicUnitType {
+  id: string;
+  code: string;
+  name: string;
+  kind: UnitTypeKind;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  garages: number | null;
+  minArea: number | null;
+  maxArea: number | null;
+  builtArea: number | null;
+}
+
+export type PublicProperty = Omit<Property, 'unitType'> & {
+  agent: PublicAgent | null;
+  unitType: PublicUnitType | null;
+};
 
 /** Proyecto de cara al listado: la familia mas lo que resume su oferta. */
 export type PublicFamily = PropertyFamily & {
@@ -639,6 +667,7 @@ export class PublicService {
     const property = await this.loadPublicProperty(code);
     return Object.assign(property, {
       agent: await this.publicAgent(property.assignedAgentId),
+      unitType: publicUnitType(property.unitType),
     });
   }
 
@@ -786,7 +815,13 @@ export class PublicService {
     return {
       family,
       unitTypes,
-      properties,
+      // Las unidades salen con la misma tipología recortada que la ficha del
+      // inmueble: es el mismo concepto y tiene que tener la misma forma.
+      properties: properties.map((property) =>
+        Object.assign(property, {
+          unitType: publicUnitType(property.unitType),
+        }),
+      ),
       amenities: await this.amenidades(properties.map((p) => p.id)),
     };
   }
@@ -1207,4 +1242,35 @@ function tooSoon(leadHours: number): string {
   if (leadHours <= 24) return 'Las visitas se piden con un dia de antelacion.';
   const dias = Math.round(leadHours / 24);
   return `Las visitas de este inmueble se piden con ${dias} dias de antelacion.`;
+}
+
+/**
+ * La tipología recortada para la web.
+ *
+ * Para el suelo, alcobas, baños y garajes salen en `null` y no en cero: un lote
+ * no tiene cero alcobas, es que la pregunta no aplica, y un cero se pintaria
+ * como "0 alcobas".
+ */
+function publicUnitType(unitType: UnitType | null): PublicUnitType | null {
+  if (!unitType) return null;
+  const auto = unitType.kind === UnitTypeKind.AUTO;
+  return {
+    id: unitType.id,
+    code: unitType.code,
+    name: unitType.name,
+    kind: unitType.kind,
+    bedrooms: auto ? null : unitType.bedrooms,
+    bathrooms: auto ? null : unitType.bathrooms,
+    garages: auto ? null : unitType.garages,
+    minArea: numero(unitType.areaMin),
+    maxArea: numero(unitType.areaMax),
+    builtArea: numero(unitType.builtArea),
+  };
+}
+
+/** `numeric` llega como texto: la web espera un numero o nada. */
+function numero(value: string | null): number | null {
+  if (value === null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }

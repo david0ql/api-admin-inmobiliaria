@@ -49,7 +49,7 @@ export interface UnitTypeSummary {
   minPrice: number | null;
   maxPrice: number | null;
   position: number;
-  /** La unidad que la representa: la mas pequeña, la del "desde". */
+  /** La unidad que la representa: la mas barata, la del "desde". */
   propertyId: string | null;
   /** Portada de esa unidad: sin foto, la tarjeta es un rectángulo. */
   coverUrl: string | null;
@@ -210,13 +210,17 @@ export class UnitTypesService {
       .addSelect('MIN(NULLIF(property.bedrooms, 0))', 'bedrooms')
       .addSelect('MIN(propertyType.name)', 'propertyType')
       /*
-        La unidad mas pequeña representa a la tipologia: es la del "desde" que
-        se anuncia. Se saca su id y no su foto para no unir aqui la tabla de
-        imagenes: un inmueble con dos portadas marcadas duplicaria su fila y el
-        recuento de unidades saldria inflado.
+        La representa la MAS BARATA, no la mas pequeña: es la que sostiene el
+        "Desde $X" que se anuncia justo encima, y si fueran dos unidades
+        distintas la web enseñaria un precio y abriria otro. El area desempata.
+
+        Se saca su id y no su foto para no unir aqui la tabla de imagenes: un
+        inmueble con dos portadas marcadas duplicaria su fila y el recuento de
+        unidades saldria inflado.
       */
       .addSelect(
-        '(ARRAY_AGG(property.id ORDER BY property.area ASC NULLS LAST))[1]',
+        `(ARRAY_AGG(property.id ORDER BY NULLIF(property.sale_price, 0) ASC NULLS LAST,
+                                 property.area ASC NULLS LAST))[1]`,
         'propertyId',
       )
       .where('property.family_id IN (:...ids)', { ids: familyIds })
