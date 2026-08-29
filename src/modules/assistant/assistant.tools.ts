@@ -581,15 +581,15 @@ type Pintable = Omit<
     | 'bathrooms'
     | 'garages'
     | 'availability'
-    | 'zone'
   >,
   never
 > & {
   // Nulos porque la version publica los deja asi cuando la consulta no los
   // trae; la tarjeta ya los pinta con `?.`.
-  propertyType: Property['propertyType'] | null;
-  city: Property['city'] | null;
-  currency: Property['currency'] | null;
+  propertyType?: Property['propertyType'] | null;
+  city?: Property['city'] | null;
+  zone?: Property['zone'] | null;
+  currency?: Property['currency'] | null;
   // Solo se le piden portada y url: la entidad y la version publica coinciden
   // en eso, y pedir `PropertyImage[]` dejaria fuera a la recortada.
   images?: { url: string; isMain: boolean }[];

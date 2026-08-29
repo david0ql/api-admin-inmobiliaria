@@ -1,3 +1,4 @@
+import { City, Zone } from '../catalog/domain/geography.entity';
 import { Property } from '../properties/domain/property.entity';
 import { PropertyFamily } from '../properties/domain/property-family.entity';
 import { PropertyImage } from '../properties/domain/property-image.entity';
@@ -59,6 +60,13 @@ export interface PublicFamilyRef {
   address: string | null;
   cityId: number | null;
   zoneId: number | null;
+  /*
+    La tarjeta del proyecto escribe "Ruitoque · Bucaramanga" con estos dos, y
+    la ficha añade el departamento desde `city.region`. Con solo los ids, el
+    sitio del proyecto desaparece de la pantalla.
+  */
+  city?: City | null;
+  zone?: Zone | null;
   latitude: string | null;
   longitude: string | null;
   deliveryYear: number | null;
@@ -139,6 +147,8 @@ export function publicFamily(
   const etapas = family.children?.map(publicFamily).filter(esRef);
   return {
     ...(etapas ? { children: etapas } : {}),
+    ...cuandoSeCargo('city', family.city),
+    ...cuandoSeCargo('zone', family.zone),
     id: family.id,
     name: family.name,
     slug: family.slug,
@@ -172,13 +182,13 @@ export interface PublicPropertyShape {
   rentPrice: number | null;
   maintenanceFee: number | null;
   rentPeriod: Property['rentPeriod'];
-  currency: Property['currency'] | null;
+  currency?: Property['currency'] | null;
   currencyId: number;
-  propertyType: Property['propertyType'] | null;
+  propertyType?: Property['propertyType'] | null;
   propertyTypeId: number;
-  city: Property['city'] | null;
+  city?: Property['city'] | null;
   cityId: number;
-  zone: Property['zone'];
+  zone?: Property['zone'];
   zoneId: number | null;
   latitude: number | null;
   longitude: number | null;
@@ -199,11 +209,11 @@ export interface PublicPropertyShape {
   publicationStatus: Property['publicationStatus'];
   videoUrl: string | null;
   tourUrl: string | null;
-  images: PublicImage[];
-  features: Property['features'];
-  family: PublicFamilyRef | null;
+  images?: PublicImage[];
+  features?: Property['features'];
+  family?: PublicFamilyRef | null;
   familyId: string | null;
-  unitType: PublicUnitType | null;
+  unitType?: PublicUnitType | null;
   unitTypeId: string | null;
   createdAt: Date;
 }
@@ -231,13 +241,13 @@ export function publicProperty(property: Property): PublicPropertyShape {
     rentPrice: property.rentPrice,
     maintenanceFee: property.maintenanceFee,
     rentPeriod: property.rentPeriod,
-    currency: property.currency ?? null,
+    ...cuandoSeCargo('currency', property.currency),
     currencyId: property.currencyId,
-    propertyType: property.propertyType ?? null,
+    ...cuandoSeCargo('propertyType', property.propertyType),
     propertyTypeId: property.propertyTypeId,
-    city: property.city ?? null,
+    ...cuandoSeCargo('city', property.city),
     cityId: property.cityId,
-    zone: property.zone,
+    ...cuandoSeCargo('zone', property.zone),
     zoneId: property.zoneId,
     latitude: property.latitude,
     longitude: property.longitude,
@@ -258,14 +268,37 @@ export function publicProperty(property: Property): PublicPropertyShape {
     publicationStatus: property.publicationStatus,
     videoUrl: property.videoUrl,
     tourUrl: property.tourUrl,
-    images: (property.images ?? []).map(publicImage),
-    features: property.features ?? [],
-    family: publicFamily(property.family),
+    ...cuandoSeCargo('images', property.images?.map(publicImage)),
+    ...cuandoSeCargo('features', property.features),
+    ...cuandoSeCargo(
+      'family',
+      property.family && publicFamily(property.family),
+    ),
     familyId: property.familyId,
-    unitType: publicUnitType(property.unitType),
+    ...cuandoSeCargo(
+      'unitType',
+      property.unitType && publicUnitType(property.unitType),
+    ),
     unitTypeId: property.unitTypeId,
     createdAt: property.createdAt,
   };
+}
+
+/**
+ * La relacion que no se pidio no viaja.
+ *
+ * TypeORM deja en `undefined` lo que no se unio y en `null` lo que se unio y
+ * esta vacio, y la diferencia importa: un listado que no pide el proyecto no
+ * puede contestar `family: null`, porque eso es afirmar que el inmueble no
+ * tiene proyecto cuando lo unico cierto es que no se pregunto. Lo mismo con
+ * `features: []`, que se leeria como "no tiene ninguna". Antes esas claves
+ * simplemente no estaban, y siguen sin estar.
+ */
+function cuandoSeCargo<K extends string, T>(
+  clave: K,
+  valor: T | undefined,
+): Record<K, T> | Record<string, never> {
+  return valor === undefined ? {} : ({ [clave]: valor } as Record<K, T>);
 }
 
 function esRef(ref: PublicFamilyRef | null): ref is PublicFamilyRef {
