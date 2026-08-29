@@ -63,7 +63,10 @@ export class BranchesService {
       );
     }
 
-    await this.branches.update({ id }, { ...data, isDefault: branch.isDefault });
+    await this.branches.update(
+      { id },
+      { ...data, isDefault: branch.isDefault },
+    );
     return this.findOne(id);
   }
 

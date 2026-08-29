@@ -30,7 +30,8 @@ export class I18nService {
     private readonly repo: Repository<Translation>,
     private readonly buster: CacheBuster,
   ) {
-    for (const locale of LOCALES) this.base.set(locale, this.leerFichero(locale));
+    for (const locale of LOCALES)
+      this.base.set(locale, this.leerFichero(locale));
   }
 
   /** Lo que la web pide para pintarse. */

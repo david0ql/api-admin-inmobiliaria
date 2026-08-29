@@ -48,7 +48,9 @@ export class I18nController {
   */
   @Roles(Role.ADMIN)
   @Get('i18n/entries')
-  @ApiOperation({ summary: 'Todas las claves, con su texto en los dos idiomas' })
+  @ApiOperation({
+    summary: 'Todas las claves, con su texto en los dos idiomas',
+  })
   entries(
     @Query('q') q?: string,
     @Query('missing') missing?: string,

@@ -64,9 +64,8 @@ export class ExchangeRateService {
 
   private async trm(): Promise<ExchangeRate | null> {
     try {
-      const filas = await this.pedir<
-        { valor: string; vigenciadesde: string }[]
-      >(TRM);
+      const filas =
+        await this.pedir<{ valor: string; vigenciadesde: string }[]>(TRM);
       const rate = Number(filas?.[0]?.valor);
       const date = filas?.[0]?.vigenciadesde?.slice(0, 10);
       if (!this.razonable(rate) || !date) return null;

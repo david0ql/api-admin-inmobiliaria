@@ -60,7 +60,9 @@ export class Branches1786100000000 implements MigrationInterface {
       —la que reparte los roles— fallaba con "unsafe use of new value". Crear
       el tipo nuevo y convertir la columna no tiene esa limitacion.
     */
-    await q.query(`ALTER TYPE "agent_role_enum" RENAME TO "agent_role_enum_old"`);
+    await q.query(
+      `ALTER TYPE "agent_role_enum" RENAME TO "agent_role_enum_old"`,
+    );
     await q.query(
       `CREATE TYPE "agent_role_enum" AS ENUM ('ADMIN', 'DIRECTOR', 'COORDINATOR', 'MANAGER', 'AGENT', 'VIEWER')`,
     );
@@ -123,9 +125,7 @@ export class Branches1786100000000 implements MigrationInterface {
       'credit_request',
       'appointment',
     ]) {
-      await q.query(
-        `ALTER TABLE "${tabla}" DROP COLUMN IF EXISTS "branch_id"`,
-      );
+      await q.query(`ALTER TABLE "${tabla}" DROP COLUMN IF EXISTS "branch_id"`);
     }
     await q.query(`DROP TABLE IF EXISTS "branch"`);
   }

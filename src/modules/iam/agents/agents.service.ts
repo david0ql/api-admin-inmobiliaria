@@ -36,7 +36,9 @@ export class AgentsService {
    * esconderlo dejaria al administrador fuera de su propio listado.
    */
   async findAll(includeInactive = false): Promise<Agent[]> {
-    const qb = this.repo.createQueryBuilder('agent').orderBy('agent.firstName', 'ASC');
+    const qb = this.repo
+      .createQueryBuilder('agent')
+      .orderBy('agent.firstName', 'ASC');
     if (!includeInactive) {
       qb.andWhere('agent.status = :status', { status: AgentStatus.ACTIVE });
     }
