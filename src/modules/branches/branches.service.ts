@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Not, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Branch } from './domain/branch.entity';
 import { Agent } from '../iam/domain/agent.entity';
 import { Role, seesAllBranches } from '../iam/domain/role.enum';
@@ -93,11 +93,21 @@ export class BranchesService {
     return this.agents.findOneOrFail({ where: { id: agent.id } });
   }
 
-  /** Quien coordina cada sede, para pintarlo en el listado. */
+  /**
+   * Quien coordina cada sede, para pintarlo en el listado.
+   *
+   * Con `Not(null)` TypeORM escribia `!= NULL`, que en SQL no es falso ni
+   * verdadero sino desconocido: la consulta no devolvia a nadie y el panel
+   * enseñaba "sin coordinador" en una sede que si lo tenia. Va con
+   * `IS NOT NULL`, que es la unica forma de preguntar por un nulo.
+   */
   async coordinators(): Promise<Agent[]> {
-    return this.agents.find({
-      where: { role: Role.COORDINATOR, branchId: Not(null as never) },
-    });
+    return this.agents
+      .createQueryBuilder('agent')
+      .where('agent.role = :role', { role: Role.COORDINATOR })
+      .andWhere('agent.branch_id IS NOT NULL')
+      .orderBy('agent.first_name', 'ASC')
+      .getMany();
   }
 
   /** El equipo de una sede. Lo usa el coordinador para gestionar los suyos. */
