@@ -8,7 +8,9 @@ import { PropertyImage } from './domain/property-image.entity';
 import { PropertyLabel } from './domain/property-label.entity';
 import { PropertyAssignment } from './domain/property-assignment.entity';
 import { PropertyFamily } from './domain/property-family.entity';
+import { FamilyImage } from './domain/family-image.entity';
 import { UnitType } from './domain/unit-type.entity';
+import { UnitTypeImage } from './domain/unit-type-image.entity';
 import { PropertiesService } from './properties.service';
 import { PropertiesController } from './properties.controller';
 import { FamiliesService } from './families.service';
@@ -25,7 +27,9 @@ import { UnitTypesController } from './unit-types.controller';
       PropertyLabel,
       PropertyAssignment,
       PropertyFamily,
+      FamilyImage,
       UnitType,
+      UnitTypeImage,
     ]),
     CatalogModule,
     IamModule,

@@ -1,8 +1,9 @@
 import { City, Zone } from '../catalog/domain/geography.entity';
+import { ImageAsset, ImageKind } from '../media/image-asset.entity';
 import { Property } from '../properties/domain/property.entity';
 import { PropertyFamily } from '../properties/domain/property-family.entity';
-import { PropertyImage } from '../properties/domain/property-image.entity';
 import { UnitType, UnitTypeKind } from '../properties/domain/unit-type.entity';
+import type { UnitTypeSummary } from '../properties/unit-types.service';
 
 /**
  * Lo que sale a la calle.
@@ -34,6 +35,15 @@ export interface PublicUnitType {
   maxArea: number | null;
   builtArea: number | null;
   description: string | null;
+  /*
+    Los planos y las fotos de la tipologia, cuando quien pregunta los trae.
+    `planUrl` es un atajo con nombre: la pantalla enseña EL plano —el primero
+    marcado como tal— junto al nombre de la tipologia, y hacer que cada
+    consumidor lo busque filtrando por `kind` es repartir la misma regla por
+    tres sitios.
+  */
+  images?: PublicImage[];
+  planUrl?: string | null;
 }
 
 export interface PublicImage {
@@ -43,6 +53,8 @@ export interface PublicImage {
   urlLarge: string;
   urlOriginal: string;
   description: string | null;
+  /** Foto o plano: la web los enseña en sitios distintos. */
+  kind: ImageKind;
   isMain: boolean;
   position: number;
   width: number | null;
@@ -72,6 +84,8 @@ export interface PublicFamilyRef {
   deliveryYear: number | null;
   totalUnits: number | null;
   coverUrl: string | null;
+  /** La galería del proyecto, cuando quien pregunta la trae. */
+  images?: PublicImage[];
   published: boolean;
   createdAt: Date;
   /*
@@ -100,7 +114,10 @@ export function publicUnitType(
 ): PublicUnitType | null {
   if (!unitType) return null;
   const auto = unitType.kind === UnitTypeKind.AUTO;
+  const imagenes = unitType.images?.map(publicImage);
   return {
+    ...cuandoSeCargo('images', imagenes),
+    ...cuandoSeCargo('planUrl', imagenes && planoDe(imagenes)),
     id: unitType.id,
     code: unitType.code,
     name: unitType.name,
@@ -123,8 +140,12 @@ export function publicUnitType(
  * Fuera `storageKey` —dónde vive el fichero en el servidor— y `sourceUrl` —de
  * qué cuenta de WASI se trajo—, que son las dos cosas que no le importan a
  * quien mira una casa y sí a quien mira el sistema.
+ *
+ * Sirve para las tres galerías —inmueble, proyecto, tipología— porque las tres
+ * tablas comparten `ImageAsset`: si algún día una añade una columna suya, no
+ * sale por aquí, que es exactamente lo que esta lista blanca protege.
  */
-export function publicImage(image: PropertyImage): PublicImage {
+export function publicImage(image: ImageAsset): PublicImage {
   return {
     id: image.id,
     url: image.url,
@@ -132,6 +153,7 @@ export function publicImage(image: PropertyImage): PublicImage {
     urlLarge: image.urlLarge,
     urlOriginal: image.urlOriginal,
     description: image.description,
+    kind: image.kind,
     isMain: image.isMain,
     position: image.position,
     width: image.width,
@@ -147,6 +169,7 @@ export function publicFamily(
   const etapas = family.children?.map(publicFamily).filter(esRef);
   return {
     ...(etapas ? { children: etapas } : {}),
+    ...cuandoSeCargo('images', family.images?.map(publicImage)),
     ...cuandoSeCargo('city', family.city),
     ...cuandoSeCargo('zone', family.zone),
     id: family.id,
@@ -163,10 +186,34 @@ export function publicFamily(
     longitude: family.longitude,
     deliveryYear: family.deliveryYear,
     totalUnits: family.totalUnits,
-    coverUrl: family.coverUrl,
+    /*
+      Manda la galería: `cover_url` es la columna vieja —cinco proyectos, y
+      apuntando a la foto de uno de sus inmuebles— y se queda solo como
+      respaldo para los que aún no tienen galería propia.
+    */
+    coverUrl: portadaDe(family) ?? family.coverUrl,
     published: family.published,
     createdAt: family.createdAt,
   };
+}
+
+/**
+ * La tipología con sus números, tal y como la ve la ficha del proyecto.
+ *
+ * `UnitTypeSummary` se arma en el panel y arrastra las imágenes como filas
+ * enteras —con `storageKey` dentro—, asi que no puede salir tal cual: se
+ * cambian por la forma pública y se añade el atajo al plano.
+ */
+export type PublicUnitTypeSummary = Omit<UnitTypeSummary, 'images'> & {
+  images: PublicImage[];
+  planUrl: string | null;
+};
+
+export function publicUnitTypeSummary(
+  resumen: UnitTypeSummary,
+): PublicUnitTypeSummary {
+  const images = resumen.images.map(publicImage);
+  return { ...resumen, images, planUrl: planoDe(images) };
 }
 
 export interface PublicPropertyShape {
@@ -303,6 +350,33 @@ function cuandoSeCargo<K extends string, T>(
 
 function esRef(ref: PublicFamilyRef | null): ref is PublicFamilyRef {
   return ref !== null;
+}
+
+/**
+ * La portada del proyecto, si su galería viene cargada.
+ *
+ * La marcada como principal, y si no la primera por posición: una galería
+ * recién subida siempre tiene portada, pero una a la que le borraron la suya
+ * en medio de otra petición no puede dejar la tarjeta en blanco.
+ *
+ * Se devuelve la versión grande y no la miniatura porque es la que pinta la
+ * cabecera de la ficha del proyecto a ancho completo.
+ */
+function portadaDe(family: PropertyFamily): string | null {
+  const imagenes = family.images;
+  if (!imagenes?.length) return null;
+  const principal =
+    imagenes.find((imagen) => imagen.isMain) ??
+    [...imagenes].sort((a, b) => a.position - b.position)[0];
+  return principal.urlLarge ?? principal.url;
+}
+
+/** EL plano: el primero marcado como tal, en el orden de la galería. */
+function planoDe(imagenes: PublicImage[]): string | null {
+  const plano = imagenes
+    .filter((imagen) => imagen.kind === ImageKind.FLOOR_PLAN)
+    .sort((a, b) => a.position - b.position)[0];
+  return plano?.urlLarge ?? null;
 }
 
 /** `numeric` llega como texto: la web espera un número o nada. */

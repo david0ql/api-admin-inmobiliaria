@@ -1,7 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Column, Entity, Index, JoinColumn, ManyToOne, Unique } from 'typeorm';
+import {
+  Column,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+  Unique,
+} from 'typeorm';
 import { BaseEntity } from '../../../shared/database/base.entity';
 import { PropertyFamily } from './property-family.entity';
+import type { UnitTypeImage } from './unit-type-image.entity';
 
 export enum UnitTypeKind {
   /** La escribe la agencia: "Tipo A, 2 alcobas, 58 m²". Manda ella. */
@@ -107,4 +116,8 @@ export class UnitType extends BaseEntity {
   @ApiProperty()
   @Column({ type: 'smallint', default: 0 })
   position: number;
+
+  /** Sus planos y sus fotos. Solo viaja cuando quien pregunta la pide. */
+  @OneToMany('UnitTypeImage', 'unitType')
+  images?: UnitTypeImage[];
 }

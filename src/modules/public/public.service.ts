@@ -21,6 +21,7 @@ import {
 import { LeadSource } from '../crm/domain/lead-source.entity';
 import { Property } from '../properties/domain/property.entity';
 import { PropertyFamily } from '../properties/domain/property-family.entity';
+import { FamilyImage } from '../properties/domain/family-image.entity';
 import {
   Availability,
   PublicationStatus,
@@ -29,6 +30,7 @@ import { FamiliesService } from '../properties/families.service';
 import { UnitTypesService } from '../properties/unit-types.service';
 import {
   publicFamily,
+  publicUnitTypeSummary,
   publicProperty,
   type PublicFamilyRef,
   type PublicPropertyShape,
@@ -753,6 +755,8 @@ export class PublicService {
       .take(limit)
       .getManyAndCount();
 
+    const portadas = await this.portadasDeProyectos(families.map((f) => f.id));
+
     // Cada proyecto viaja con su recuento de unidades disponibles y su rango
     // de precio: sin eso, el listado es una lista de nombres. Solo se calcula
     // para la pagina que se devuelve, no para el catalogo entero.
@@ -767,6 +771,17 @@ export class PublicService {
         return {
           ...publicFamily(family)!,
           /*
+            La portada sale de la galeria del proyecto y solo cae a `coverUrl`
+            —la columna vieja, que apunta a la foto de uno de sus inmuebles—
+            cuando el proyecto aun no tiene galeria propia.
+
+            La tarjeta recibe la portada, no la galeria: enseñar `images` aqui
+            con una sola foto dentro seria afirmar que el proyecto tiene una,
+            y quien la leyera como la galeria completa pintaria un carrusel de
+            un elemento.
+          */
+          coverUrl: portadas.get(family.id) ?? publicFamily(family)!.coverUrl,
+          /*
             Cuenta TODAS las filas, incluida la de las unidades sin clasificar.
             La ficha del proyecto enseña esa fila como una opcion mas del
             desplegable, asi que descontarla aqui haria que la tarjeta dijera
@@ -780,6 +795,31 @@ export class PublicService {
     );
 
     return new Paginated(data, total, page, limit);
+  }
+
+  /**
+   * La portada de cada proyecto de la pagina, en una sola consulta.
+   *
+   * `DISTINCT ON` deja una fila por proyecto sin traer la galeria entera de
+   * doce proyectos para quedarse con doce urls. El criterio es el mismo que en
+   * la ficha: la marcada como principal y, si no hay, la primera por posicion.
+   */
+  private async portadasDeProyectos(
+    familyIds: string[],
+  ): Promise<Map<string, string>> {
+    if (!familyIds.length) return new Map();
+
+    const filas = await this.families.manager
+      .createQueryBuilder(FamilyImage, 'image')
+      .select('DISTINCT ON (image.family_id) image.family_id', 'familyId')
+      .addSelect('image.url_large', 'url')
+      .where('image.family_id IN (:...familyIds)', { familyIds })
+      .orderBy('image.family_id', 'ASC')
+      .addOrderBy('image.is_main', 'DESC')
+      .addOrderBy('image.position', 'ASC')
+      .getRawMany<{ familyId: string; url: string }>();
+
+    return new Map(filas.map((fila) => [fila.familyId, fila.url]));
   }
 
   async familyBySlug(slug: string) {
@@ -797,7 +837,9 @@ export class PublicService {
 
     return {
       family: publicFamily(family),
-      unitTypes,
+      // Las tipologías traen sus planos, y los planos vienen con la ruta
+      // interna del fichero pegada: salen por la lista blanca como todo.
+      unitTypes: unitTypes.map(publicUnitTypeSummary),
       // Las unidades salen recortadas igual que la ficha del inmueble: es el
       // mismo concepto y tiene que tener la misma forma.
       properties: properties.map(publicProperty),

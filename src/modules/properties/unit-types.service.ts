@@ -10,16 +10,23 @@ import { In, Repository } from 'typeorm';
 import { applyBranchScope, assertSameBranch } from '../iam/scope';
 import { RequestContext } from '../../shared/request-context/request-context';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
+import { ImageKind } from '../media/image-asset.entity';
+import {
+  Coleccion,
+  ImageCollectionService,
+} from '../media/image-collection.service';
 import { FamiliesService } from './families.service';
 import { Property } from './domain/property.entity';
 import { PropertyImage } from './domain/property-image.entity';
 import { UnitType, UnitTypeKind } from './domain/unit-type.entity';
+import { UnitTypeImage } from './domain/unit-type-image.entity';
 import { Availability, PublicationStatus } from './domain/property.enums';
 import type {
   CreateUnitTypeDto,
   ReorderUnitTypesDto,
   UpdateUnitTypeDto,
 } from './dto/unit-type.dto';
+import type { UpdateImageDto } from './dto/image.dto';
 
 /**
  * Una tipología con lo que se sabe de sus unidades.
@@ -51,6 +58,14 @@ export interface UnitTypeSummary {
   propertyId: string | null;
   /** Portada de esa unidad: sin foto, la tarjeta es un rectángulo. */
   coverUrl: string | null;
+  /**
+   * Los planos y las fotos propias de la tipología.
+   *
+   * Van con el resumen y no en una llamada aparte porque se pintan en la misma
+   * tarjeta: pedirlos luego serían ocho peticiones para dibujar una pantalla
+   * de ocho tipologías.
+   */
+  images: UnitTypeImage[];
 }
 
 /** Lo que la agrupación por tipología saca de los inmuebles. */
@@ -74,6 +89,9 @@ export class UnitTypesService {
     private readonly repo: Repository<UnitType>,
     @InjectRepository(Property)
     private readonly properties: Repository<Property>,
+    @InjectRepository(UnitTypeImage)
+    private readonly imagenes: Repository<UnitTypeImage>,
+    private readonly galeria: ImageCollectionService,
     private readonly families: FamiliesService,
   ) {}
 
@@ -107,6 +125,7 @@ export class UnitTypesService {
       .getMany();
 
     const agregados = await this.agregados(ids, publicOnly);
+    const imagenes = await this.imagesFor(tipologias.map((t) => t.id));
 
     const filas: UnitTypeSummary[] = tipologias
       .map((tipologia): UnitTypeSummary => {
@@ -142,6 +161,7 @@ export class UnitTypesService {
           position: tipologia.position,
           propertyId: datos.propertyId,
           coverUrl: datos.coverUrl,
+          images: imagenes.get(tipologia.id) ?? [],
         };
       })
       .filter((fila) => !publicOnly || fila.units > 0);
@@ -173,6 +193,9 @@ export class UnitTypesService {
         position: 32767,
         propertyId: sueltas.propertyId,
         coverUrl: sueltas.coverUrl,
+        // La fila de las no clasificadas no es una tipología: no hay nada de
+        // lo que tener plano.
+        images: [],
       });
     }
 
@@ -370,7 +393,108 @@ export class UnitTypesService {
    */
   async remove(id: string): Promise<void> {
     const tipologia = await this.findById(id);
+    /*
+      Aqui si se borran los ficheros, al reves que en el proyecto: esto es un
+      borrado REAL y no hay vuelta atras, asi que la carpeta
+      `uploads/unit-types/<id>` no la va a volver a nombrar ninguna fila. El
+      `ON DELETE CASCADE` se lleva los registros; el disco hay que decirselo.
+    */
+    await this.galeria.removeAll(this.coleccion(id));
     await this.repo.delete({ id: tipologia.id });
+  }
+
+  // --- imagenes ----------------------------------------------------------
+
+  /**
+   * Los planos y las fotos de la tipologia.
+   *
+   * Es la galeria que da sentido a `kind`: de un "Tipo A" lo que se mira es la
+   * distribucion, y el plano no puede ir mezclado en el carrusel entre la
+   * cocina y el bano del apartamento modelo.
+   */
+  private coleccion(id: string): Coleccion<UnitTypeImage> {
+    return {
+      repo: this.imagenes,
+      owner: { unitTypeId: id },
+      scope: `unit-types/${id}`,
+      que: 'esta tipología',
+    };
+  }
+
+  /** Las imagenes de la tipologia, en el orden que decidio la agencia. */
+  async imagesOf(id: string): Promise<UnitTypeImage[]> {
+    await this.findById(id);
+    return this.imagenes.find({
+      where: { unitTypeId: id },
+      order: { position: 'ASC' },
+    });
+  }
+
+  /**
+   * Las imagenes de varias tipologias de una vez.
+   *
+   * La ficha del proyecto pinta ocho tipologias con sus planos: pedirlas una a
+   * una son ocho consultas para dibujar una pantalla. Devuelve un mapa por
+   * tipologia porque es como se consume — cada tarjeta busca las suyas.
+   */
+  async imagesFor(ids: string[]): Promise<Map<string, UnitTypeImage[]>> {
+    const mapa = new Map<string, UnitTypeImage[]>();
+    if (!ids.length) return mapa;
+    const filas = await this.imagenes.find({
+      where: { unitTypeId: In(ids) },
+      order: { position: 'ASC' },
+    });
+    for (const fila of filas) {
+      mapa.set(fila.unitTypeId, [...(mapa.get(fila.unitTypeId) ?? []), fila]);
+    }
+    return mapa;
+  }
+
+  /**
+   * Por defecto un plano y no una foto.
+   *
+   * Al reves que en el inmueble: lo que se sube a una tipologia es el plano
+   * nueve de cada diez veces, y equivocarse por defecto en el sitio donde el
+   * dato importa —es JUSTO lo que la web enseña aparte— seria dejar la
+   * pantalla llena de planos etiquetados como fotos.
+   */
+  async addImages(
+    id: string,
+    files: Express.Multer.File[],
+    kind: ImageKind = ImageKind.FLOOR_PLAN,
+  ): Promise<{
+    images: UnitTypeImage[];
+    rejected: { name: string; reason: string }[];
+  }> {
+    await this.findById(id);
+    return this.galeria.add(this.coleccion(id), files, kind);
+  }
+
+  async reorderImages(
+    id: string,
+    imageIds: string[],
+  ): Promise<UnitTypeImage[]> {
+    await this.findById(id);
+    return this.galeria.reorder(this.coleccion(id), imageIds);
+  }
+
+  async setMainImage(id: string, imageId: string): Promise<void> {
+    await this.findById(id);
+    return this.galeria.setMain(this.coleccion(id), imageId);
+  }
+
+  async updateImage(
+    id: string,
+    imageId: string,
+    dto: UpdateImageDto,
+  ): Promise<UnitTypeImage> {
+    await this.findById(id);
+    return this.galeria.update(this.coleccion(id), imageId, dto);
+  }
+
+  async removeImage(id: string, imageId: string): Promise<void> {
+    await this.findById(id);
+    return this.galeria.remove(this.coleccion(id), imageId);
   }
 
   /**

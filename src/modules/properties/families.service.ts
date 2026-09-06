@@ -15,8 +15,14 @@ import {
 } from '../iam/scope';
 import { RequestContext } from '../../shared/request-context/request-context';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
+import { ImageKind } from '../media/image-asset.entity';
+import {
+  Coleccion,
+  ImageCollectionService,
+} from '../media/image-collection.service';
 import { Property } from './domain/property.entity';
 import { PropertyFamily } from './domain/property-family.entity';
+import { FamilyImage } from './domain/family-image.entity';
 import { Availability, PublicationStatus } from './domain/property.enums';
 import { AutoUnitTypesService } from './unit-types.auto';
 import type {
@@ -24,6 +30,7 @@ import type {
   SearchFamiliesDto,
   UpdateFamilyDto,
 } from './dto/family.dto';
+import type { UpdateImageDto } from './dto/image.dto';
 
 @Injectable()
 export class FamiliesService {
@@ -34,6 +41,9 @@ export class FamiliesService {
     private readonly tree: TreeRepository<PropertyFamily>,
     @InjectRepository(Property)
     private readonly properties: Repository<Property>,
+    @InjectRepository(FamilyImage)
+    private readonly imagenes: Repository<FamilyImage>,
+    private readonly galeria: ImageCollectionService,
     private readonly catalog: CatalogService,
     private readonly autoUnitTypes: AutoUnitTypesService,
   ) {}
@@ -84,7 +94,10 @@ export class FamiliesService {
   async findBySlug(slug: string): Promise<PropertyFamily> {
     const family = await this.repo.findOne({
       where: { slug },
-      relations: { children: true },
+      // La ficha del proyecto es lo unico que enseña la galeria entera; el
+      // resto se conforma con la portada y no la carga.
+      relations: { children: true, images: true },
+      order: { images: { position: 'ASC' } },
     });
     if (!family)
       throw new NotFoundException(`Proyecto "${slug}" no encontrado`);
@@ -282,6 +295,14 @@ export class FamiliesService {
         `"${family.name}" tiene etapas: bórralas primero`,
       );
     }
+    /*
+      Borrado logico, y por eso las imagenes NO se tocan: ni las filas —el
+      `ON DELETE CASCADE` solo salta con un borrado real, que aqui no ocurre—
+      ni los ficheros de `uploads/families/<id>`. Un proyecto retirado se puede
+      restaurar, y restaurarlo sin sus fotos seria devolver media cosa. El
+      espacio en disco de 57 proyectos no es un problema que justifique
+      destruir algo que se puede querer de vuelta.
+    */
     await this.repo.softDelete(id);
   }
 
@@ -325,6 +346,84 @@ export class FamiliesService {
     // suelo, le toca tramo desde el primer momento.
     await this.autoUnitTypes.release(anterior?.unitTypeId ?? null);
     if (familyId) await this.autoUnitTypes.sync(propertyId);
+  }
+
+  // --- imagenes ----------------------------------------------------------
+
+  /**
+   * La galeria del proyecto.
+   *
+   * Un proyecto tenia hasta ahora una sola portada escrita como texto, y lo
+   * que vende obra nueva son la fachada, las zonas comunes y la implantacion.
+   * El comportamiento —subir, ordenar, portada, borrar— es el mismo que el del
+   * inmueble y esta escrito una sola vez en `ImageCollectionService`.
+   */
+  private coleccion(id: string): Coleccion<FamilyImage> {
+    return {
+      repo: this.imagenes,
+      owner: { familyId: id },
+      scope: `families/${id}`,
+      que: 'este proyecto',
+    };
+  }
+
+  /**
+   * El proyecto, si la sede en curso lo alcanza y puede escribir en el.
+   *
+   * `findById` ya acota por sede —un proyecto de otra oficina no existe aqui—
+   * y `assertSameBranch` cubre el caso del usuario con sede propia que pide
+   * "todas las sedes" en la barra: ahi el contexto no filtra, y sin esta
+   * segunda comprobacion podria subir fotos a un proyecto ajeno.
+   */
+  private async editable(id: string): Promise<PropertyFamily> {
+    const family = await this.findById(id);
+    assertSameBranch(this.actor(), family.branchId);
+    return family;
+  }
+
+  /** Las imagenes del proyecto, en el orden que decidio la agencia. */
+  async imagesOf(id: string): Promise<FamilyImage[]> {
+    await this.findById(id);
+    return this.imagenes.find({
+      where: { familyId: id },
+      order: { position: 'ASC' },
+    });
+  }
+
+  async addImages(
+    id: string,
+    files: Express.Multer.File[],
+    kind: ImageKind = ImageKind.PHOTO,
+  ): Promise<{
+    images: FamilyImage[];
+    rejected: { name: string; reason: string }[];
+  }> {
+    await this.editable(id);
+    return this.galeria.add(this.coleccion(id), files, kind);
+  }
+
+  async reorderImages(id: string, imageIds: string[]): Promise<FamilyImage[]> {
+    await this.editable(id);
+    return this.galeria.reorder(this.coleccion(id), imageIds);
+  }
+
+  async setMainImage(id: string, imageId: string): Promise<void> {
+    await this.editable(id);
+    return this.galeria.setMain(this.coleccion(id), imageId);
+  }
+
+  async updateImage(
+    id: string,
+    imageId: string,
+    dto: UpdateImageDto,
+  ): Promise<FamilyImage> {
+    await this.editable(id);
+    return this.galeria.update(this.coleccion(id), imageId, dto);
+  }
+
+  async removeImage(id: string, imageId: string): Promise<void> {
+    await this.editable(id);
+    return this.galeria.remove(this.coleccion(id), imageId);
   }
 
   /** Inmuebles sin proyecto, para el flujo de alta masiva. */

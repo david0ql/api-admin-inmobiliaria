@@ -4,6 +4,7 @@ import { memoryStorage } from 'multer';
 import { AppConfigService } from '../../shared/config/app-config.service';
 import { StorageService } from './storage.service';
 import { FileSecurityService } from './file-security.service';
+import { ImageCollectionService } from './image-collection.service';
 
 @Module({
   imports: [
@@ -21,7 +22,12 @@ import { FileSecurityService } from './file-security.service';
       }),
     }),
   ],
-  providers: [StorageService, FileSecurityService],
-  exports: [StorageService, FileSecurityService, MulterModule],
+  providers: [StorageService, FileSecurityService, ImageCollectionService],
+  exports: [
+    StorageService,
+    FileSecurityService,
+    ImageCollectionService,
+    MulterModule,
+  ],
 })
 export class MediaModule {}

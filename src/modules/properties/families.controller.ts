@@ -8,9 +8,13 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
+  UploadedFiles,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FamiliesService } from './families.service';
 import {
   AssignFamilyDto,
@@ -18,6 +22,8 @@ import {
   SearchFamiliesDto,
   UpdateFamilyDto,
 } from './dto/family.dto';
+import { ReorderImagesDto } from './dto/property.dto';
+import { UpdateImageDto, UploadImagesDto } from './dto/image.dto';
 import { Roles } from '../iam/decorators';
 import { Role } from '../iam/domain/role.enum';
 
@@ -102,5 +108,83 @@ export class FamiliesController {
   @ApiOperation({ summary: 'Otras unidades del mismo proyecto' })
   siblings(@Param('id', ParseUUIDPipe) id: string) {
     return this.families.siblingsOf(id);
+  }
+
+  // --- imagenes ----------------------------------------------------------
+
+  @Get('families/:id/images')
+  @ApiOperation({ summary: 'Galería del proyecto' })
+  images(@Param('id', ParseUUIDPipe) id: string) {
+    return this.families.imagesOf(id);
+  }
+
+  @Post('families/:id/images')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @UseInterceptors(FilesInterceptor('files', 30))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        files: { type: 'array', items: { type: 'string', format: 'binary' } },
+        kind: { type: 'string', enum: ['PHOTO', 'FLOOR_PLAN'] },
+      },
+    },
+  })
+  @ApiOperation({
+    summary: 'Sube imágenes del proyecto',
+    description:
+      'Multipart en el campo `files`. `kind` marca el lote entero: PHOTO ' +
+      '(por defecto) o FLOOR_PLAN, que es la implantación del conjunto.',
+  })
+  addImages(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFiles() files: Express.Multer.File[],
+    @Body() dto: UploadImagesDto,
+  ) {
+    return this.families.addImages(id, files, dto.kind);
+  }
+
+  @Put('families/:id/images/order')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: 'Reordena la galería' })
+  reorderImages(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReorderImagesDto,
+  ) {
+    return this.families.reorderImages(id, dto.imageIds);
+  }
+
+  @Patch('families/:id/images/:imageId/main')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Elige la portada' })
+  setMainImage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('imageId', ParseUUIDPipe) imageId: string,
+  ) {
+    return this.families.setMainImage(id, imageId);
+  }
+
+  @Patch('families/:id/images/:imageId')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: 'Cambia el pie de la imagen o la marca como plano' })
+  updateImage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('imageId', ParseUUIDPipe) imageId: string,
+    @Body() dto: UpdateImageDto,
+  ) {
+    return this.families.updateImage(id, imageId, dto);
+  }
+
+  @Delete('families/:id/images/:imageId')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Borra la imagen y sus ficheros del servidor' })
+  removeImage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('imageId', ParseUUIDPipe) imageId: string,
+  ) {
+    return this.families.removeImage(id, imageId);
   }
 }

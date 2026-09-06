@@ -7,7 +7,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { Paginated } from '../../shared/http/paginated';
 import { CatalogService } from '../catalog/catalog.service';
-import { StorageService } from '../media/storage.service';
+import { ImageKind } from '../media/image-asset.entity';
+import {
+  Coleccion,
+  ImageCollectionService,
+} from '../media/image-collection.service';
 import { Feature } from '../catalog/domain/catalogs.entity';
 import { AgentsService } from '../iam/agents/agents.service';
 import {
@@ -33,6 +37,7 @@ import {
   ReorderImagesDto,
   UpdatePropertyDto,
 } from './dto/property.dto';
+import { UpdateImageDto } from './dto/image.dto';
 import { SearchPropertiesDto } from './dto/search-properties.dto';
 import { UnitTypesService } from './unit-types.service';
 import { AutoUnitTypesService } from './unit-types.auto';
@@ -54,7 +59,7 @@ export class PropertiesService {
     @InjectRepository(Feature) private readonly features: Repository<Feature>,
     private readonly catalog: CatalogService,
     private readonly agents: AgentsService,
-    private readonly storage: StorageService,
+    private readonly galeria: ImageCollectionService,
     private readonly unitTypes: UnitTypesService,
     private readonly autoUnitTypes: AutoUnitTypesService,
     private readonly dataSource: DataSource,
@@ -352,7 +357,37 @@ export class PropertiesService {
   // --- imagenes ----------------------------------------------------------
 
   /**
-   * Sube fotos al almacenamiento propio.
+   * La galeria del inmueble tal y como la maneja `ImageCollectionService`.
+   *
+   * Subir, ordenar, elegir portada y borrar es lo mismo aqui que en el
+   * proyecto y en la tipologia, asi que esta escrito una sola vez. Lo que este
+   * servicio aporta —y el generico no puede saber— es quien tiene derecho a
+   * tocar este inmueble.
+   */
+  private coleccion(id: string): Coleccion<PropertyImage> {
+    return {
+      repo: this.images,
+      owner: { propertyId: id },
+      // `properties/<id>`: borrar el inmueble es borrar una carpeta.
+      scope: `properties/${id}`,
+      que: 'este inmueble',
+    };
+  }
+
+  /** El inmueble, si quien pregunta puede modificarlo. */
+  private async editable(
+    id: string,
+    actor: AuthenticatedActor,
+  ): Promise<Property> {
+    const property = await this.repo.findOne({ where: { id } });
+    if (!property) throw new NotFoundException(`Inmueble ${id} no encontrado`);
+    assertSameBranch(actor, property.branchId);
+    assertCanMutate(actor, property.assignedAgentId, 'este inmueble');
+    return property;
+  }
+
+  /**
+   * Sube fotos —o planos— al almacenamiento propio.
    *
    * Recibe los binarios en memoria; `StorageService` valida que sean imagenes
    * de verdad, genera las variantes y devuelve las rutas ya servibles. Las
@@ -362,70 +397,13 @@ export class PropertiesService {
     id: string,
     files: Express.Multer.File[],
     actor: AuthenticatedActor,
+    kind: ImageKind = ImageKind.PHOTO,
   ): Promise<{
     images: PropertyImage[];
     rejected: { name: string; reason: string }[];
   }> {
-    const property = await this.repo.findOne({ where: { id } });
-    if (!property) throw new NotFoundException(`Inmueble ${id} no encontrado`);
-    assertSameBranch(actor, property.branchId);
-    assertCanMutate(actor, property.assignedAgentId, 'este inmueble');
-
-    if (!files?.length) {
-      throw new BadRequestException(
-        'No llego ningun archivo en el campo `files`',
-      );
-    }
-
-    const existing = await this.images.count({ where: { propertyId: id } });
-    const saved: PropertyImage[] = [];
-    const rejected: { name: string; reason: string }[] = [];
-
-    for (const file of files) {
-      try {
-        const stored = await this.storage.saveImage(
-          file.buffer,
-          `properties/${id}`,
-          file.originalname,
-        );
-        saved.push(
-          await this.images.save(
-            this.images.create({
-              propertyId: id,
-              storageKey: stored.key,
-              url: stored.url,
-              urlMedium: stored.urlMedium,
-              urlLarge: stored.urlLarge,
-              urlOriginal: stored.urlOriginal,
-              checksum: stored.checksum,
-              width: stored.width,
-              height: stored.height,
-              bytes: stored.bytes,
-              description: null,
-              position: existing + saved.length + 1,
-              // La primera foto del inmueble se convierte en portada.
-              isMain: existing === 0 && saved.length === 0,
-            }),
-          ),
-        );
-      } catch (error) {
-        rejected.push({
-          name: file.originalname,
-          reason:
-            error instanceof Error
-              ? error.message
-              : 'Error al procesar la imagen',
-        });
-      }
-    }
-
-    if (!saved.length) {
-      throw new BadRequestException(
-        `Ninguna imagen se pudo guardar. ${rejected.map((r) => `${r.name}: ${r.reason}`).join('; ')}`,
-      );
-    }
-
-    return { images: saved, rejected };
+    await this.editable(id, actor);
+    return this.galeria.add(this.coleccion(id), files, kind);
   }
 
   async reorderImages(
@@ -433,35 +411,8 @@ export class PropertiesService {
     dto: ReorderImagesDto,
     actor: AuthenticatedActor,
   ): Promise<PropertyImage[]> {
-    const property = await this.repo.findOne({ where: { id } });
-    if (!property) throw new NotFoundException(`Inmueble ${id} no encontrado`);
-    assertSameBranch(actor, property.branchId);
-    assertCanMutate(actor, property.assignedAgentId, 'este inmueble');
-
-    const images = await this.images.find({ where: { propertyId: id } });
-    const known = new Set(images.map((i) => i.id));
-    if (
-      dto.imageIds.length !== images.length ||
-      dto.imageIds.some((i) => !known.has(i))
-    ) {
-      throw new BadRequestException(
-        'El orden debe incluir exactamente las imagenes actuales del inmueble',
-      );
-    }
-
-    await this.dataSource.transaction(async (manager) => {
-      for (const [index, imageId] of dto.imageIds.entries()) {
-        await manager.update(
-          PropertyImage,
-          { id: imageId },
-          { position: index + 1 },
-        );
-      }
-    });
-    return this.images.find({
-      where: { propertyId: id },
-      order: { position: 'ASC' },
-    });
+    await this.editable(id, actor);
+    return this.galeria.reorder(this.coleccion(id), dto.imageIds);
   }
 
   async setMainImage(
@@ -469,25 +420,25 @@ export class PropertiesService {
     imageId: string,
     actor: AuthenticatedActor,
   ): Promise<void> {
-    const property = await this.repo.findOne({ where: { id } });
-    if (!property) throw new NotFoundException(`Inmueble ${id} no encontrado`);
-    assertSameBranch(actor, property.branchId);
-    assertCanMutate(actor, property.assignedAgentId, 'este inmueble');
+    await this.editable(id, actor);
+    return this.galeria.setMain(this.coleccion(id), imageId);
+  }
 
-    const image = await this.images.findOne({
-      where: { id: imageId, propertyId: id },
-    });
-    if (!image)
-      throw new NotFoundException('La imagen no pertenece a este inmueble');
-
-    await this.dataSource.transaction(async (manager) => {
-      await manager.update(
-        PropertyImage,
-        { propertyId: id },
-        { isMain: false },
-      );
-      await manager.update(PropertyImage, { id: imageId }, { isMain: true });
-    });
+  /**
+   * Cambia el pie de foto o marca la imagen como plano.
+   *
+   * Un inmueble suelto tambien tiene plano —un lote con su levantamiento, una
+   * casa con su distribucion— y hasta ahora entraba al carrusel como una foto
+   * mas, entre la cocina y el bano.
+   */
+  async updateImage(
+    id: string,
+    imageId: string,
+    dto: UpdateImageDto,
+    actor: AuthenticatedActor,
+  ): Promise<PropertyImage> {
+    await this.editable(id, actor);
+    return this.galeria.update(this.coleccion(id), imageId, dto);
   }
 
   async removeImage(
@@ -495,30 +446,8 @@ export class PropertiesService {
     imageId: string,
     actor: AuthenticatedActor,
   ): Promise<void> {
-    const property = await this.repo.findOne({ where: { id } });
-    if (!property) throw new NotFoundException(`Inmueble ${id} no encontrado`);
-    assertSameBranch(actor, property.branchId);
-    assertCanMutate(actor, property.assignedAgentId, 'este inmueble');
-
-    const image = await this.images.findOne({
-      where: { id: imageId, propertyId: id },
-    });
-    if (!image)
-      throw new NotFoundException('La imagen no pertenece a este inmueble');
-
-    await this.images.delete(imageId);
-    // El registro y el fichero se van juntos: sin esto `uploads/` crece con
-    // huerfanos que nadie vuelve a mirar.
-    await this.storage.remove(image.storageKey);
-
-    if (image.isMain) {
-      // Sin portada la ficha se ve rota: se promueve la siguiente por posicion.
-      const next = await this.images.findOne({
-        where: { propertyId: id },
-        order: { position: 'ASC' },
-      });
-      if (next) await this.images.update({ id: next.id }, { isMain: true });
-    }
+    await this.editable(id, actor);
+    return this.galeria.remove(this.coleccion(id), imageId);
   }
 
   // --- etiquetas ---------------------------------------------------------

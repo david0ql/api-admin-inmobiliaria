@@ -23,6 +23,7 @@ import {
   UpdatePropertyDto,
 } from './dto/property.dto';
 import { SearchPropertiesDto } from './dto/search-properties.dto';
+import { UpdateImageDto, UploadImagesDto } from './dto/image.dto';
 import { CurrentUser, Roles } from '../iam/decorators';
 import { Role } from '../iam/domain/role.enum';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
@@ -124,21 +125,24 @@ export class PropertiesController {
       type: 'object',
       properties: {
         files: { type: 'array', items: { type: 'string', format: 'binary' } },
+        kind: { type: 'string', enum: ['PHOTO', 'FLOOR_PLAN'] },
       },
     },
   })
   @ApiOperation({
-    summary: 'Sube fotos del inmueble',
+    summary: 'Sube fotos o planos del inmueble',
     description:
-      'Multipart en el campo `files`. Cada imagen se recomprime a WebP en dos ' +
-      'anchos y se guarda en el servidor; no se enlaza a ningun CDN externo.',
+      'Multipart en el campo `files`. Cada imagen se recomprime a WebP en ' +
+      'cuatro anchos y se guarda en el servidor; no se enlaza a ningun CDN ' +
+      'externo. `kind` marca el lote entero: PHOTO (por defecto) o FLOOR_PLAN.',
   })
   addImages(
     @Param('id', ParseUUIDPipe) id: string,
     @UploadedFiles() files: Express.Multer.File[],
+    @Body() dto: UploadImagesDto,
     @CurrentUser() actor: AuthenticatedActor,
   ) {
-    return this.properties.addImages(id, files, actor);
+    return this.properties.addImages(id, files, actor, dto.kind);
   }
 
   @Put(':id/images/order')
@@ -160,6 +164,20 @@ export class PropertiesController {
     @CurrentUser() actor: AuthenticatedActor,
   ) {
     return this.properties.setMainImage(id, imageId, actor);
+  }
+
+  @Patch(':id/images/:imageId')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.AGENT)
+  @ApiOperation({
+    summary: 'Cambia el pie de la imagen o la marca como plano',
+  })
+  updateImage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('imageId', ParseUUIDPipe) imageId: string,
+    @Body() dto: UpdateImageDto,
+    @CurrentUser() actor: AuthenticatedActor,
+  ) {
+    return this.properties.updateImage(id, imageId, dto, actor);
   }
 
   @Delete(':id/images/:imageId')

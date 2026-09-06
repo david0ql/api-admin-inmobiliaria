@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 import { BaseEntity } from '../../../shared/database/base.entity';
 import { City, Zone } from '../../catalog/domain/geography.entity';
+import type { FamilyImage } from './family-image.entity';
 
 export enum FamilyKind {
   /** Obra nueva sobre planos o en construcción. */
@@ -153,4 +154,14 @@ export class PropertyFamily extends BaseEntity {
 
   @OneToMany('Property', 'family')
   properties: unknown[];
+
+  /**
+   * Galeria del proyecto: fachada, zonas comunes, implantacion.
+   *
+   * Por nombre y no por referencia directa, como `properties`: la imagen
+   * conoce a su proyecto y el proyecto a sus imagenes, y el ciclo de imports
+   * se rompe dejando que TypeORM resuelva el nombre al arrancar.
+   */
+  @OneToMany('FamilyImage', 'family')
+  images?: FamilyImage[];
 }
