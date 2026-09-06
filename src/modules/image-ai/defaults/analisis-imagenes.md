@@ -63,14 +63,14 @@ leido una placa, `plates` va en true. Es incoherente contar y luego no marcar.
   portarretratos donde salen personas, que es el caso mas comun con diferencia.
 - `plates`: placas de vehiculo legibles, aunque solo se lean a medias.
 - `documents`: papeles con datos — recibos, cedulas, correspondencia sobre una
-  mesa, diplomas con nombre. Aqui va tambien lo que identifica al inmueble o a
-  un tercero: un cartel de "SE VENDE" de otra agencia con su telefono, el
-  nombre del edificio rotulado en la entrada, el numero de la casa o la
-  direccion pintada en la fachada. En las fotos de fachada esto es lo primero
-  que hay que buscar: los edificios de aqui suelen llevar la nomenclatura
-  pintada o en placa junto a la puerta ("Calle 41 # 14-82"), y con eso
-  cualquiera localiza el inmueble.
+  mesa, diplomas con nombre, un cartel de "SE VENDE" de otra agencia con su
+  telefono.
 - `screens`: pantallas encendidas con contenido legible.
+- `address`: lo que permite localizar el inmueble — el nombre del edificio
+  rotulado en la entrada, el numero de la casa, la nomenclatura pintada o en
+  placa junto a la puerta ("Calle 41 # 14-82"). En las fotos de fachada esto es
+  lo primero que hay que buscar: los edificios de aqui casi siempre la llevan,
+  y con eso cualquiera se planta en la puerta.
 
 En `notes` di donde esta, en una frase. Ante la duda, marcalo. Que un asesor
 tenga que mirar una foto de mas cuesta un minuto; que la cara de un inquilino
@@ -181,6 +181,7 @@ codigo. Esta es la forma exacta:
       "issues": ["Hay un carro tapando la entrada"],
       "fixes": ["Repetirla sin el carro delante, o desde un poco mas a la izquierda"],
       "privacy": {"faces": false, "plates": true, "documents": false, "screens": false,
+                  "address": false,
                   "notes": "Se lee la placa del carro de la derecha"},
       "usable": true
     }
