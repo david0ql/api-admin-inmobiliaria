@@ -15,6 +15,13 @@ import { RoomKind } from './domain/image-analysis.enums';
  * falta se rellena. La factura ya esta pagada cuando esto se ejecuta: tirar la
  * respuesta por un decimal fuera de sitio es tirar el dinero.
  *
+ * El `.optional()` de cada campo NO es decorativo, y esta promesa ya se rompio
+ * una vez por no tenerlo: en zod una clave AUSENTE no es lo mismo que una
+ * clave con valor raro, y sin `.optional()` un `caption` que el modelo no
+ * menciona hace fallar el lote entero con "expected nonoptional". Aqui la
+ * ausencia es el caso normal —un modelo omite lo que no tiene que decir— y se
+ * trata como tal. `image-analysis.contract.spec.ts` lo vigila.
+ *
  * Lo que sí es estricto es que haya `images`: sin eso no hay respuesta que
  * guardar y hay que decirlo.
  */
@@ -23,6 +30,7 @@ import { RoomKind } from './domain/image-analysis.enums';
 const acotado = (min: number, max: number, porDefecto: number) =>
   z
     .unknown()
+    .optional()
     .transform((v) => {
       const n = typeof v === 'number' ? v : Number(v);
       if (!Number.isFinite(n)) return porDefecto;
@@ -34,6 +42,7 @@ const acotado = (min: number, max: number, porDefecto: number) =>
 const texto = (max: number) =>
   z
     .unknown()
+    .optional()
     .transform((v) => (typeof v === 'string' ? v.trim().slice(0, max) : ''))
     .pipe(z.string());
 
@@ -41,6 +50,7 @@ const texto = (max: number) =>
 const frases = (maxFrases: number, maxLargo: number) =>
   z
     .unknown()
+    .optional()
     .transform((v) =>
       (Array.isArray(v) ? v : [])
         .filter((x): x is string => typeof x === 'string')
@@ -57,6 +67,7 @@ const frases = (maxFrases: number, maxLargo: number) =>
  */
 const estancia = z
   .unknown()
+  .optional()
   .transform((v) => {
     const s = typeof v === 'string' ? v.trim().toUpperCase() : '';
     return (Object.values(RoomKind) as string[]).includes(s)
@@ -67,6 +78,7 @@ const estancia = z
 
 export const privacySchema = z
   .unknown()
+  .optional()
   .transform((v) => {
     const o = (typeof v === 'object' && v ? v : {}) as Record<string, unknown>;
     const b = (k: string) => o[k] === true || o[k] === 'true';
@@ -77,6 +89,7 @@ export const privacySchema = z
       plates: b('plates'),
       documents: b('documents'),
       screens: b('screens'),
+      address: b('address'),
       notes: notes || null,
     };
   })
@@ -106,6 +119,7 @@ export const imageJudgementSchema = z.object({
   // sabria por que faltan.
   usable: z
     .unknown()
+    .optional()
     .transform((v) => v !== false && v !== 'false')
     .pipe(z.boolean()),
 });
@@ -113,6 +127,7 @@ export const imageJudgementSchema = z.object({
 export const albumJudgementSchema = z.object({
   suggestedOrder: z
     .unknown()
+    .optional()
     .transform((v) =>
       (Array.isArray(v) ? v : [])
         .map((x) => Number(x))
@@ -133,6 +148,7 @@ export const albumJudgementSchema = z.object({
   */
   missing: z
     .unknown()
+    .optional()
     .transform(() => [] as RoomKind[])
     .pipe(z.array(z.enum(RoomKind))),
   summary: texto(1000),

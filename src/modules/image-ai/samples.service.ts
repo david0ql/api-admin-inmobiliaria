@@ -245,9 +245,25 @@ export class SamplesService {
       await manager.delete(Property, ids);
     });
 
-    // Los ficheros van despues de la transaccion: si el borrado en base falla,
-    // lo peor que puede pasar es que sobren unas carpetas, y no que la ficha
-    // quede apuntando a fotos que ya no existen.
+    /*
+      Los ficheros van despues de la transaccion: si el borrado en base falla,
+      lo peor que puede pasar es que sobren unas carpetas, y no que la ficha
+      quede apuntando a fotos que ya no existen.
+
+      Y se borra por CARPETA de un inmueble que creo este mismo modulo, nunca
+      por `storage_key` ni recorriendo el disco en busca de huerfanos. Es una
+      invariante que hay que mantener si alguien amplia esto:
+
+      Un fichero de `uploads/` esta vivo si lo nombra CUALQUIERA de las siete
+      columnas que guardan rutas, no solo las cinco de `property_image`: estan
+      tambien `property_family.cover_url` y `agent.photo_url`. Y `photo_url`
+      guarda unicamente la miniatura `-t`, asi que las variantes `-m`, `-l` y
+      `-o` de la foto de un asesor NO aparecen citadas en ninguna parte y sin
+      embargo estan en uso. Una limpieza que decida por `storage_key` se las
+      lleva, y la foto del asesor se rompe el dia que alguien la pinte a mas de
+      560 px. Lo verifico `fotos-api` barriendo las 129 columnas de texto del
+      esquema, no de memoria.
+    */
     for (const id of ids) {
       await this.storage.removeScope(`properties/${id}`);
     }
