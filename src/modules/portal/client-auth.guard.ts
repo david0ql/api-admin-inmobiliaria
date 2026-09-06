@@ -30,7 +30,17 @@ export const AllowPendingClientPassword = () =>
 @Injectable()
 export class ClientAuthGuard extends AuthGuard('jwt-client') {
   constructor(private readonly reflector: Reflector) {
-    super();
+    /*
+      `property` es lo que decide DONDE deja Passport al autenticado, y por
+      omision es `req.user`. Eso rompia el portal entero: `req.user` es donde
+      el resto de la aplicacion espera un asesor, y el interceptor de sede,
+      que es global, veia un objeto sin rol ni sede y cortaba con 403 «Tu
+      usuario no tiene sede asignada» todas las rutas del cliente.
+
+      Devolverlo en `handleRequest` no bastaba: Passport lo asigna igualmente
+      despues, con su propia clave.
+    */
+    super({ property: 'portalClient' });
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {

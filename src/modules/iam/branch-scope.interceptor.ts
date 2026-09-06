@@ -32,7 +32,14 @@ export class BranchScopeInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest<Request>();
     const actor = request.user;
 
-    if (actor) {
+    /*
+      Sin rol no es un asesor, asi que la sede no le aplica: un cliente del
+      portal no pertenece a ninguna oficina. Antes bastaba con que algo
+      dejara un objeto en `req.user` para que esto contestara 403, y eso
+      tumbo el portal entero. La sede acota al equipo; a quien no es del
+      equipo se le acota por otra cosa —su propio id— en su propio modulo.
+    */
+    if (actor?.role) {
       const rol = actor.role as Role;
       const pedida = request.headers[CABECERA_SEDE];
       const elegida = typeof pedida === 'string' ? pedida.trim() : '';
