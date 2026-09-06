@@ -295,6 +295,26 @@ export class Property extends BaseEntity {
   })
   publicationStatus: PublicationStatus;
 
+  /**
+   * Inmueble de mentira, creado para ver como quedan las pantallas.
+   *
+   * No es un estado del negocio: es una marca de "esto no existe". Va aparte de
+   * `publicationStatus` porque un borrador es un inmueble real a medio redactar
+   * y esto no es un inmueble, y porque un borrador se puede activar sin querer
+   * desde el panel.
+   *
+   * La base impide que un inmueble de muestra salga de DRAFT
+   * (`CHK_property_sample_is_draft`), asi que no puede colarse en la web
+   * publica ni aunque alguien lo intente: los listados publicos filtran por
+   * estado publicado y un `is_sample` nunca puede tener ese estado.
+   *
+   * Y es lo que hace que borrarlos sea seguro: ningun inmueble real lo tiene.
+   */
+  @ApiProperty({ description: 'Ficha de prueba, nunca sale a la web' })
+  @Index()
+  @Column({ name: 'is_sample', type: 'boolean', default: false })
+  isSample: boolean;
+
   @ManyToOne(() => PropertyLabel, {
     nullable: true,
     eager: true,

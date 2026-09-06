@@ -1,4 +1,6 @@
 import type { StorageService } from '../media/storage.service';
+import type { ImageGateService } from '../media/image-gate.service';
+import { GateProfile, GateSeverity } from '../media/image-gate.rules';
 import {
   ConsignmentDocumentType,
   type ConsignmentFile,
@@ -29,16 +31,54 @@ export const DOCUMENT_FIELDS = [
  * Un fichero que falle no tumba el envio entero: se descarta y el resto entra.
  * Perder una foto es molesto; perder la solicitud completa por una foto es
  * peor.
+ *
+ * Las fotos pasan por la puerta de calidad con el perfil `REQUEST`, que es el
+ * blando a proposito. Quien esta al otro lado es un propietario con el movil en
+ * la mano pidiendo que le consignen su casa, no un fotografo entregando un
+ * anuncio: si se le rechaza la foto porque la hizo en vertical, no la repite —
+ * cierra el formulario, y ahi se pierde un cliente. Por eso aqui solo se
+ * bloquea lo que literalmente no se puede ver, y la foto vertical o movida
+ * entra con un aviso que lee el asesor cuando revisa la solicitud.
  */
 export async function storeConsignmentFiles(
   storage: StorageService,
+  gate: ImageGateService,
   requestId: string,
   uploaded: Record<string, Express.Multer.File[] | undefined> | undefined,
-): Promise<ConsignmentFile[]> {
+): Promise<{ files: ConsignmentFile[]; notes: string[] }> {
   const scope = `consignments/${requestId}`;
   const files: ConsignmentFile[] = [];
+  /** Lo que el asesor deberia mirar al abrir la solicitud. */
+  const notes: string[] = [];
+  const huellas: { checksum: string | null; perceptualHash: string | null }[] =
+    [];
 
   for (const photo of uploaded?.photos ?? []) {
+    const veredicto = await gate
+      .evaluate(photo.buffer, photo.originalname, GateProfile.REQUEST, huellas)
+      .catch(() => null);
+
+    if (veredicto && !veredicto.accepted) {
+      notes.push(
+        `"${photo.originalname}": ${veredicto.issues
+          .filter((i) => i.severity === GateSeverity.BLOCK)
+          .map((i) => i.message)
+          .join(' ')}`,
+      );
+      continue;
+    }
+    if (veredicto) {
+      huellas.push({
+        checksum: veredicto.metrics.checksum,
+        perceptualHash: veredicto.metrics.perceptualHash,
+      });
+      for (const aviso of veredicto.issues.filter(
+        (i) => i.severity === GateSeverity.WARN,
+      )) {
+        notes.push(`"${photo.originalname}": ${aviso.message}`);
+      }
+    }
+
     const stored = await storage
       .saveImage(photo.buffer, scope, photo.originalname)
       .catch(() => null);
@@ -86,5 +126,5 @@ export async function storeConsignmentFiles(
     }
   }
 
-  return files;
+  return { files, notes };
 }

@@ -8,6 +8,10 @@
       {
         "include": "modules/i18n/defaults/*.json",
         "outDir": "dist"
+      },
+      {
+        "include": "modules/image-ai/defaults/*.md",
+        "outDir": "dist"
       }
     ],
     "watchAssets": true

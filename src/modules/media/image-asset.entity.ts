@@ -66,6 +66,29 @@ export abstract class ImageAsset extends BaseEntity {
   @Column({ type: 'varchar', length: 64, nullable: true })
   checksum: string | null;
 
+  /**
+   * Huella de la ESCENA, no de los bytes: un dHash de 64 bits en hexadecimal.
+   *
+   * `checksum` solo caza el mismo fichero subido dos veces. Esto caza la misma
+   * foto reexportada, recomprimida o llegada por WhatsApp, que es como se
+   * cuelan de verdad las repetidas: en el inventario de produccion hay 530
+   * imagenes con checksum repetido y 844 en grupos con la misma huella, 121 de
+   * ellas copias del mismo placeholder de 500x500.
+   *
+   * Nullable porque las 6.306 que ya estaban no la tienen: se calcula al subir,
+   * y lo viejo se rellena cuando se toque, no con una migracion que reabra 4,5
+   * GB de ficheros.
+   */
+  @ApiPropertyOptional({ nullable: true })
+  @Index()
+  @Column({
+    name: 'perceptual_hash',
+    type: 'varchar',
+    length: 16,
+    nullable: true,
+  })
+  perceptualHash: string | null;
+
   @ApiPropertyOptional({ nullable: true })
   @Column({ type: 'int', nullable: true })
   width: number | null;

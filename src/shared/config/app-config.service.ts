@@ -130,4 +130,24 @@ export class AppConfigService {
       maxSteps: this.get('CHAT_MAX_STEPS'),
     };
   }
+
+  /**
+   * El analisis de imagenes. `enabled` incluye que haya clave, igual que el
+   * chat: sin `OPENAI_API_KEY` no hay analisis aunque la bandera este puesta, y
+   * el modulo degrada devolviendo 503 en vez de reventar al arrancar.
+   *
+   * `apiKey` no se expone aqui a proposito: quien la necesita es
+   * `OpenAiProvider`, que la lee de `chat`. Un segundo sitio del que sacarla es
+   * un segundo sitio desde el que filtrarla.
+   */
+  get imageAi() {
+    return {
+      enabled:
+        this.get('IMAGE_AI_ENABLED') && Boolean(this.get('OPENAI_API_KEY')),
+      model: this.get('IMAGE_AI_MODEL'),
+      maxImages: this.get('IMAGE_AI_MAX_IMAGES'),
+      detail: this.get('IMAGE_AI_DETAIL'),
+      maxOutputTokens: this.get('IMAGE_AI_MAX_OUTPUT_TOKENS'),
+    };
+  }
 }

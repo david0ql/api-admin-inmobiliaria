@@ -12,6 +12,8 @@ import type {
 } from 'typeorm';
 import { ImageAsset, ImageKind } from './image-asset.entity';
 import { StorageService } from './storage.service';
+import { ImageGateService } from './image-gate.service';
+import { GateProfile, GateSeverity, type GateIssue } from './image-gate.rules';
 
 /**
  * El orden de la galeria, siempre el mismo.
@@ -28,6 +30,19 @@ function orden<T extends ImageAsset>(): FindOptionsOrder<T> {
 export interface ImagenRechazada {
   name: string;
   reason: string;
+}
+
+/**
+ * Lo que entro pero tiene algo que mirar.
+ *
+ * Separado de `rejected` porque son dos cosas distintas y confundirlas se paga
+ * de las dos maneras: una foto buena marcada como rechazada hace que el asesor
+ * la vuelva a subir, y una foto con un defecto real escondida entre los aciertos
+ * acaba publicada. Aqui esta lo que entro y conviene revisar.
+ */
+export interface ImagenConAviso {
+  name: string;
+  issues: GateIssue[];
 }
 
 /** El dueño de la galeria, tal y como se pregunta y se escribe. */
@@ -57,7 +72,10 @@ export interface Coleccion<T extends ImageAsset> {
  */
 @Injectable()
 export class ImageCollectionService {
-  constructor(private readonly storage: StorageService) {}
+  constructor(
+    private readonly storage: StorageService,
+    private readonly gate: ImageGateService,
+  ) {}
 
   /**
    * Guarda los ficheros y los cuelga de la galeria.
@@ -65,24 +83,86 @@ export class ImageCollectionService {
    * Las que fallen se reportan sin tumbar el resto del lote: en una subida de
    * treinta fotos, una con los metadatos rotos no puede perder las otras
    * veintinueve.
+   *
+   * `profile` decide con que liston se mide. `INVENTORY` es lo que sube el
+   * equipo y exige calidad de anuncio —horizontal, 1024 px de ancho—; `REQUEST`
+   * es lo que manda un propietario desde el movil y solo bloquea lo que no se
+   * puede ver, porque ahi un rechazo no mejora una foto: cierra el formulario y
+   * pierde el cliente.
    */
   async add<T extends ImageAsset>(
     coleccion: Coleccion<T>,
     files: Express.Multer.File[],
     kind: ImageKind = ImageKind.PHOTO,
-  ): Promise<{ images: T[]; rejected: ImagenRechazada[] }> {
-    const { owner, scope } = coleccion;
+    profile: GateProfile = GateProfile.INVENTORY,
+  ): Promise<{
+    images: T[];
+    rejected: ImagenRechazada[];
+    warnings: ImagenConAviso[];
+  }> {
+    const { repo, owner, scope } = coleccion;
     if (!files?.length) {
       throw new BadRequestException(
         'No llego ningun archivo en el campo `files`',
       );
     }
 
+    /*
+      Las huellas de lo que ya cuelga de esta galeria, leidas UNA vez.
+
+      Sirven para no repetir foto. Se traen enteras y no una consulta por
+      archivo porque una subida son treinta ficheros contra la misma lista, y
+      una galeria no pasa de unas decenas de imagenes.
+    */
+    const previas = (await repo.find({
+      where: owner,
+      select: { checksum: true, perceptualHash: true } as never,
+    })) as Pick<ImageAsset, 'checksum' | 'perceptualHash'>[];
+
     const saved: T[] = [];
     const rejected: ImagenRechazada[] = [];
+    const warnings: ImagenConAviso[] = [];
+    const huellas = [...previas];
 
     for (const file of files) {
       try {
+        /*
+          La puerta de calidad va ANTES de guardar nada.
+
+          No es solo cuestion de criterio: recomprimir una foto a cuatro
+          tamanos WebP es lo mas caro que hace esta API, y pagarlo por una
+          imagen de 500x500 que se iba a rechazar igual es tirar CPU. Medirla
+          cuesta milisegundos.
+        */
+        const veredicto = await this.gate.evaluate(
+          file.buffer,
+          file.originalname,
+          profile,
+          huellas,
+        );
+        if (!veredicto.accepted) {
+          rejected.push({
+            name: file.originalname,
+            reason: veredicto.issues
+              .filter((i) => i.severity === GateSeverity.BLOCK)
+              .map((i) => i.message)
+              .join(' '),
+          });
+          continue;
+        }
+        const avisos = veredicto.issues.filter(
+          (i) => i.severity === GateSeverity.WARN,
+        );
+        if (avisos.length) {
+          warnings.push({ name: file.originalname, issues: avisos });
+        }
+        // Se apunta la huella ya, no al final: dos copias de la misma foto
+        // dentro del MISMO lote tienen que detectarse una contra otra.
+        huellas.push({
+          checksum: veredicto.metrics.checksum,
+          perceptualHash: veredicto.metrics.perceptualHash,
+        });
+
         const stored = await this.storage.saveImage(
           file.buffer,
           scope,
@@ -97,6 +177,7 @@ export class ImageCollectionService {
             urlLarge: stored.urlLarge,
             urlOriginal: stored.urlOriginal,
             checksum: stored.checksum,
+            perceptualHash: veredicto.metrics.perceptualHash,
             width: stored.width,
             height: stored.height,
             bytes: stored.bytes,
@@ -121,10 +202,10 @@ export class ImageCollectionService {
 
         Es un 400 porque la peticion no consiguio nada, y eso el cliente tiene
         que poder tratarlo como un fallo. Pero el motivo de CADA fichero es lo
-        que el asesor necesita leer —"esta esta vertical", "esta no se puede
-        abrir"— y componerlo en una frase obligaba al panel a deshacerla con
-        una expresion regular. `message` se conserva tal y como estaba para no
-        romper a quien ya lo lee.
+        que el asesor necesita leer —"esta esta vertical", "esta ya la subiste"—
+        y componerlo en una frase obligaba al panel a deshacerla con una
+        expresion regular para volver a separarlo. `message` se conserva tal y
+        como estaba para no romper a quien ya lo lee.
       */
       throw new BadRequestException({
         statusCode: 400,
@@ -133,10 +214,11 @@ export class ImageCollectionService {
           .map((r) => `${r.name}: ${r.reason}`)
           .join('; ')}`,
         rejected,
+        warnings,
       });
     }
 
-    return { images: saved, rejected };
+    return { images: saved, rejected, warnings };
   }
 
   /**

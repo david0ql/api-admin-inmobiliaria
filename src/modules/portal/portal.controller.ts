@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Logger,
   Param,
   ParseIntPipe,
   ParseUUIDPipe,
@@ -25,6 +26,7 @@ import { streamConsignmentDocument } from '../public/consignment-documents';
 
 import { PublicService } from '../public/public.service';
 import { StorageService } from '../media/storage.service';
+import { ImageGateService } from '../media/image-gate.service';
 import { ClientAuthGuard, CurrentClient } from './client-auth.guard';
 import type { AuthenticatedClient } from './client-jwt.strategy';
 import { PortalService } from './portal.service';
@@ -42,10 +44,13 @@ import { PortalConsignmentDto } from './dto/portal.dto';
 @UseGuards(ClientAuthGuard)
 @Controller('portal')
 export class PortalController {
+  private readonly logger = new Logger(PortalController.name);
+
   constructor(
     private readonly portal: PortalService,
     private readonly publicService: PublicService,
     private readonly storage: StorageService,
+    private readonly gate: ImageGateService,
   ) {}
 
   @Get('me')
@@ -136,12 +141,28 @@ export class PortalController {
       client.id,
     );
 
-    const files = await storeConsignmentFiles(
+    const { files, notes } = await storeConsignmentFiles(
       this.storage,
+      this.gate,
       request.id,
       uploaded,
     );
     if (files.length) await this.publicService.attachFiles(request.id, files);
+
+    /*
+      Al propietario se le da las gracias y punto.
+
+      Los avisos de la puerta —"esta vertical", "salio oscura"— NO se le
+      devuelven: son para el asesor que revisa la solicitud. Devolverselos a
+      quien acaba de mandar las fotos de su casa convierte un "gracias, te
+      llamamos" en una lista de reproches, y esta persona no esta publicando un
+      anuncio: esta preguntando si le interesa a la agencia.
+    */
+    if (notes.length) {
+      this.logger.log(
+        `Solicitud ${request.reference}: ${notes.length} avisos sobre las fotos`,
+      );
+    }
 
     return {
       reference: request.reference,

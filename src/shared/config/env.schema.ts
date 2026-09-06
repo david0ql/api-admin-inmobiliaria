@@ -169,6 +169,49 @@ export const envSchema = z.object({
 
   /** Tope de vueltas del bucle de herramientas por turno: acota el gasto. */
   CHAT_MAX_STEPS: z.coerce.number().int().min(1).max(12).default(6),
+
+  // --- analisis de imagenes de inmueble -----------------------------------
+  //
+  // Mira las fotos de un inmueble y dice que estancia es cada una, si estan
+  // presentables, en que orden van y si hay algo que no deba salir a una web
+  // publica. Usa la MISMA clave que el asistente: `OPENAI_API_KEY`.
+  //
+  // Esto lo dispara SOLO el personal de la plataforma, nunca un cliente ni un
+  // visitante, y cada llamada se paga por imagen. Los limites de aqui son
+  // limites de gasto, no de tecnica.
+
+  /** Enciende o apaga el analisis sin tocar el asistente. */
+  IMAGE_AI_ENABLED: bool.default(true),
+
+  /**
+   * Modelo del analisis. Aparte de `CHAT_MODEL` porque son dos trabajos
+   * distintos: el chat necesita herramientas y latencia baja, y esto necesita
+   * ver imagenes. Poder cambiar uno sin tocar el otro es lo que permite probar
+   * un modelo mejor en las fotos sin arriesgar el chat de la web.
+   */
+  IMAGE_AI_MODEL: z.string().default('gpt-4.1-mini'),
+
+  /**
+   * Cuantas fotos entran en una llamada. Es el freno de gasto principal: pulsar
+   * "analizar" en un inmueble de cuarenta fotos no puede lanzar cuarenta cobros
+   * sin que nadie lo haya decidido.
+   */
+  IMAGE_AI_MAX_IMAGES: z.coerce.number().int().min(1).max(40).default(20),
+
+  /**
+   * Cuanto detalle se le pide al modelo por imagen. `low` cuesta una fraccion y
+   * basta para distinguir una cocina de una alcoba, que es lo que se pregunta;
+   * `high` solo hace falta para leer texto pequeno dentro de la foto.
+   */
+  IMAGE_AI_DETAIL: z.enum(['low', 'high', 'auto']).default('low'),
+
+  /** Techo de la respuesta, por si el modelo se desmanda escribiendo. */
+  IMAGE_AI_MAX_OUTPUT_TOKENS: z.coerce
+    .number()
+    .int()
+    .min(500)
+    .max(16_000)
+    .default(4_000),
 });
 
 export type Env = z.infer<typeof envSchema>;

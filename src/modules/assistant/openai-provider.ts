@@ -11,6 +11,11 @@ import type {
   ChatRequest,
   ToolCall,
 } from './chat-provider';
+import type {
+  VisionProvider,
+  VisionRequest,
+  VisionResponse,
+} from './vision-provider';
 
 /**
  * Proveedor OpenAI sobre `fetch`.
@@ -24,13 +29,106 @@ import type {
  * puertas locales): solo cambia `CHAT_BASE_URL`.
  */
 @Injectable()
-export class OpenAiProvider implements ChatProvider {
+export class OpenAiProvider implements ChatProvider, VisionProvider {
   private readonly logger = new Logger(OpenAiProvider.name);
 
   constructor(private readonly config: AppConfigService) {}
 
   get model(): string {
     return this.config.chat.model;
+  }
+
+  /**
+   * Una pregunta con imagenes dentro y una respuesta en JSON.
+   *
+   * Sin `stream`: lo que vuelve es un objeto que hay que validar entero antes
+   * de guardarlo, asi que no hay nada que ir enseñando por el camino.
+   *
+   * Las imagenes viajan como `data:` URI en el propio cuerpo y NUNCA como una
+   * URL de `/media/...`: eso obligaria a que el inmueble estuviera publicado y
+   * a que el proveedor pudiera entrar a nuestro servidor, y las fotos de una
+   * solicitud de consignacion no estan publicadas ni deben estarlo.
+   *
+   * `temperature` a 0: aqui no se quiere variedad. Dos analisis de la misma
+   * foto con el mismo prompt tienen que parecerse, o comparar versiones del
+   * prompt no mide el prompt, mide el ruido.
+   */
+  async seeJson(request: VisionRequest): Promise<VisionResponse> {
+    const { apiKey, baseUrl } = this.config.chat;
+    if (!apiKey) {
+      throw new ServiceUnavailableException(
+        'El analisis de imagenes no esta configurado: falta la clave del proveedor',
+      );
+    }
+    const model = request.model || this.config.chat.model;
+
+    const body = {
+      model,
+      temperature: 0,
+      max_tokens: request.maxOutputTokens ?? 4_000,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: request.system },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: request.user },
+            ...request.images.map((image) => ({
+              type: 'image_url',
+              image_url: {
+                url: `data:${image.mimeType};base64,${image.data.toString('base64')}`,
+                detail: image.detail ?? 'low',
+              },
+            })),
+          ],
+        },
+      ],
+    };
+
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: request.signal,
+      });
+    } catch (error) {
+      this.logger.error(
+        `No se pudo contactar al proveedor: ${errorMessage(error)}`,
+      );
+      throw new ServiceUnavailableException(
+        'El analisis de imagenes no esta disponible ahora mismo',
+      );
+    }
+
+    if (!res.ok) {
+      // Del detalle solo se registra el principio, y NUNCA el cuerpo enviado:
+      // ahi van las imagenes en base64 y, mas importante, la cabecera lleva la
+      // clave. Un log con la clave dentro es la clave publicada.
+      const detail = await res.text().catch(() => '');
+      this.logger.error(
+        `Proveedor respondio ${res.status}: ${detail.slice(0, 500)}`,
+      );
+      throw new ServiceUnavailableException(
+        'El analisis de imagenes no esta disponible ahora mismo',
+      );
+    }
+
+    const json = (await res.json()) as OpenAiCompletion;
+    return {
+      content: json.choices?.[0]?.message?.content ?? '',
+      model: json.model ?? model,
+      usage: json.usage
+        ? {
+            inputTokens: json.usage.prompt_tokens ?? 0,
+            outputTokens: json.usage.completion_tokens ?? 0,
+          }
+        : null,
+    };
   }
 
   async *stream(request: ChatRequest): AsyncIterable<ChatEvent> {
@@ -191,6 +289,13 @@ function toWireMessage(message: ChatMessage): WireMessage {
     wire.name = message.name;
   }
   return wire;
+}
+
+/** Respuesta sin `stream`, que es la que usa `seeJson`. */
+interface OpenAiCompletion {
+  model?: string;
+  choices?: { message?: { content?: string | null } }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
 }
 
 interface OpenAiStreamChunk {
