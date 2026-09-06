@@ -71,14 +71,13 @@ export class ImageCollectionService {
     files: Express.Multer.File[],
     kind: ImageKind = ImageKind.PHOTO,
   ): Promise<{ images: T[]; rejected: ImagenRechazada[] }> {
-    const { repo, owner, scope } = coleccion;
+    const { owner, scope } = coleccion;
     if (!files?.length) {
       throw new BadRequestException(
         'No llego ningun archivo en el campo `files`',
       );
     }
 
-    const existing = await repo.count({ where: owner });
     const saved: T[] = [];
     const rejected: ImagenRechazada[] = [];
 
@@ -90,25 +89,20 @@ export class ImageCollectionService {
           file.originalname,
         );
         saved.push(
-          await repo.save(
-            repo.create({
-              ...owner,
-              storageKey: stored.key,
-              url: stored.url,
-              urlMedium: stored.urlMedium,
-              urlLarge: stored.urlLarge,
-              urlOriginal: stored.urlOriginal,
-              checksum: stored.checksum,
-              width: stored.width,
-              height: stored.height,
-              bytes: stored.bytes,
-              description: null,
-              kind,
-              position: existing + saved.length + 1,
-              // La primera imagen de la galeria se convierte en portada.
-              isMain: existing === 0 && saved.length === 0,
-            } as DeepPartial<T>),
-          ),
+          await this.insertarAlFinal(coleccion, {
+            ...owner,
+            storageKey: stored.key,
+            url: stored.url,
+            urlMedium: stored.urlMedium,
+            urlLarge: stored.urlLarge,
+            urlOriginal: stored.urlOriginal,
+            checksum: stored.checksum,
+            width: stored.width,
+            height: stored.height,
+            bytes: stored.bytes,
+            description: null,
+            kind,
+          } as DeepPartial<T>),
         );
       } catch (error) {
         rejected.push({
@@ -122,14 +116,71 @@ export class ImageCollectionService {
     }
 
     if (!saved.length) {
-      throw new BadRequestException(
-        `Ninguna imagen se pudo guardar. ${rejected
+      /*
+        El cuerpo lleva el desglose ademas del texto.
+
+        Es un 400 porque la peticion no consiguio nada, y eso el cliente tiene
+        que poder tratarlo como un fallo. Pero el motivo de CADA fichero es lo
+        que el asesor necesita leer —"esta esta vertical", "esta no se puede
+        abrir"— y componerlo en una frase obligaba al panel a deshacerla con
+        una expresion regular. `message` se conserva tal y como estaba para no
+        romper a quien ya lo lee.
+      */
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: `Ninguna imagen se pudo guardar. ${rejected
           .map((r) => `${r.name}: ${r.reason}`)
           .join('; ')}`,
-      );
+        rejected,
+      });
     }
 
     return { images: saved, rejected };
+  }
+
+  /**
+   * Inserta la imagen al final de la galeria, sin carreras.
+   *
+   * La posicion se leia contando al empezar el lote y sumando: con dos
+   * peticiones en vuelo sobre la misma galeria —que es lo que pasa en cuanto
+   * el panel sube dos fotos a la vez— las dos leian el mismo total y las dos
+   * escribian la misma posicion, y lo mismo con `isMain`: dos portadas. El
+   * panel se defendia subiendo de una en una, o sea pagando la latencia de la
+   * oficina foto a foto.
+   *
+   * El cerrojo es de Postgres y por galeria —la clave es su carpeta, que es su
+   * identidad— y dura lo que la transaccion: dos subidas a proyectos distintos
+   * no se esperan, y dos al mismo se turnan durante el milisegundo que cuesta
+   * contar y meter una fila. No vale un UNIQUE sobre (dueño, position) porque
+   * eso no reparte numeros: solo hace fallar a la segunda.
+   */
+  private async insertarAlFinal<T extends ImageAsset>(
+    { repo, owner, scope }: Coleccion<T>,
+    campos: DeepPartial<T>,
+  ): Promise<T> {
+    return repo.manager.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        scope,
+      ]);
+
+      const tabla = manager.getRepository<T>(repo.target);
+      const fila = await tabla
+        .createQueryBuilder('imagen')
+        .select('COALESCE(MAX(imagen.position), 0)', 'ultima')
+        .addSelect('COUNT(*)', 'total')
+        .where(owner)
+        .getRawOne<{ ultima: string; total: string }>();
+
+      return tabla.save(
+        tabla.create({
+          ...campos,
+          position: Number(fila?.ultima ?? 0) + 1,
+          // La primera imagen de la galeria se convierte en portada.
+          isMain: Number(fila?.total ?? 0) === 0,
+        } as DeepPartial<T>),
+      );
+    });
   }
 
   /**

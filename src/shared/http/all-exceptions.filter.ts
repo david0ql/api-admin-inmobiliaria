@@ -28,6 +28,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let status: number = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string | string[] = 'Error interno del servidor';
     let error = 'InternalServerError';
+    /*
+      Lo que la excepcion quiso contar ademas del texto.
+
+      Un fallo puede traer detalle estructurado —la subida de veinte fotos que
+      no guarda ninguna sabe cual fallo y por que, una por una— y aplanarlo a
+      una frase obliga al cliente a deshacerla con una expresion regular. Solo
+      viaja lo que alguien puso a proposito en el cuerpo de la excepcion: aqui
+      no se inventa nada, y las que no traen detalle salen exactamente igual
+      que antes.
+    */
+    let detalle: Record<string, unknown> = {};
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -38,6 +49,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
         const b = body as { message?: string | string[]; error?: string };
         message = b.message ?? exception.message;
         error = b.error ?? exception.name;
+        detalle = Object.fromEntries(
+          Object.entries(b as Record<string, unknown>).filter(
+            ([clave]) => !['message', 'error', 'statusCode'].includes(clave),
+          ),
+        );
       }
       if (error === 'InternalServerError') error = exception.name;
     } else if (exception instanceof QueryFailedError) {
@@ -81,6 +97,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     res.status(status).json({
+      ...detalle,
+      // Despues del detalle: nada de lo que venga en la excepcion puede
+      // suplantar el codigo, la ruta ni la hora.
       statusCode: status,
       error,
       message,

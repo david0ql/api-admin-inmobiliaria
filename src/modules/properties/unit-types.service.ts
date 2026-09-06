@@ -300,14 +300,27 @@ export class UnitTypesService {
   }
 
   /** Las tipologías tal cual, para el formulario que las edita. */
+  /**
+   * Las tipologias sin agregados, para el formulario que las edita.
+   *
+   * Vienen con sus imagenes porque la lista del panel tiene que poder decir
+   * cual tiene plano y cual no: sin ellas, marcarlo serian tantas peticiones
+   * como tipologias tenga el proyecto, y son ocho o diez.
+   */
   async listOf(familyId: string): Promise<UnitType[]> {
     const ids = await this.families.descendantIds(familyId);
-    return this.repo
+    const tipologias = await this.repo
       .createQueryBuilder('unitType')
+      .leftJoinAndSelect('unitType.images', 'images')
       .where('unitType.family_id IN (:...ids)', { ids })
       .orderBy('unitType.position', 'ASC')
       .addOrderBy('unitType.code', 'ASC')
+      .addOrderBy('images.position', 'ASC')
       .getMany();
+    // La relacion siempre viaja, aunque este vacia: aqui se pidio, y un
+    // `undefined` diria "no se pregunto" cuando la respuesta es "no tiene".
+    for (const tipologia of tipologias) tipologia.images ??= [];
+    return tipologias;
   }
 
   // --- escritura ---------------------------------------------------------

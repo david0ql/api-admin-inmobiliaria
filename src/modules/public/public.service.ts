@@ -662,9 +662,22 @@ export class PublicService {
       .leftJoinAndSelect('property.zone', 'zone')
       .leftJoinAndSelect('property.currency', 'currency')
       .leftJoinAndSelect('property.family', 'family')
-      // La ficha dice de que tipologia es la unidad; `unitTypeId` viaja solo
-      // por ser columna, pero el nombre hay que traerlo.
+      /*
+        La ficha dice de que tipologia es la unidad; `unitTypeId` viaja solo
+        por ser columna, pero el nombre hay que traerlo.
+
+        Y con el, sus planos: quien mira un apartamento sobre planos quiere ver
+        la distribucion sin salir de la ficha. Sin esta union la tipologia
+        llega sin `images`, y entonces `planUrl` ni siquiera aparece — que es
+        lo correcto, porque no se pregunto, pero deja la seccion vacia justo
+        donde hace falta.
+      */
       .leftJoinAndSelect('property.unitType', 'unitType')
+      .leftJoinAndSelect('unitType.images', 'unitTypeImages')
+      // La portada del proyecto sale de su galeria cuando la tiene, y para eso
+      // hay que traerla tambien aqui: la miniatura del proyecto en la ficha
+      // del inmueble es la misma foto que la cabecera de su pagina.
+      .leftJoinAndSelect('family.images', 'familyImages')
       .leftJoinAndSelect('property.features', 'features')
       .leftJoinAndSelect('property.images', 'images')
       .where('property.code = :code', { code })
@@ -672,6 +685,8 @@ export class PublicService {
         visible: VISIBLE,
       })
       .orderBy('images.position', 'ASC')
+      .addOrderBy('unitTypeImages.position', 'ASC')
+      .addOrderBy('familyImages.position', 'ASC')
       .getOne();
 
     if (!property)
