@@ -139,6 +139,9 @@ export class ImageCollectionService {
           file.originalname,
           profile,
           huellas,
+          // `que` ya lo sabe la coleccion: "este inmueble", "este proyecto",
+          // "esta tipologia". El gate no tiene por que adivinarlo.
+          coleccion.que,
         );
         if (!veredicto.accepted) {
           rejected.push({

@@ -147,7 +147,16 @@ export class PortalController {
       request.id,
       uploaded,
     );
-    if (files.length) await this.publicService.attachFiles(request.id, files);
+    /*
+      Se guarda TODO: lo que entro y lo que no.
+
+      Aunque no haya entrado ni un fichero. Antes esto iba dentro de un
+      `if (files.length)` y por tanto la solicitud en la que fallaba todo era
+      justo la que no dejaba ni rastro de por que.
+    */
+    if (files.length || notes.length) {
+      await this.publicService.attachFiles(request.id, files, notes);
+    }
 
     /*
       Al propietario se le da las gracias y punto.
@@ -157,10 +166,14 @@ export class PortalController {
       quien acaba de mandar las fotos de su casa convierte un "gracias, te
       llamamos" en una lista de reproches, y esta persona no esta publicando un
       anuncio: esta preguntando si le interesa a la agencia.
+
+      Que no se le enseñen no significa que se tiren: quedan guardados en la
+      solicitud, que es donde los lee quien tiene que actuar sobre ellos.
     */
-    if (notes.length) {
-      this.logger.log(
-        `Solicitud ${request.reference}: ${notes.length} avisos sobre las fotos`,
+    const perdidos = notes.filter((n) => n.blocked).length;
+    if (perdidos) {
+      this.logger.warn(
+        `Solicitud ${request.reference}: ${perdidos} ficheros no entraron; el motivo esta en la ficha`,
       );
     }
 

@@ -10,6 +10,22 @@ export interface PrivacyFlags {
   plates: boolean;
   documents: boolean;
   screens: boolean;
+  /**
+   * La direccion o el nombre del edificio, legibles en la foto: la
+   * nomenclatura pintada en la fachada, el rotulo de la entrada, el numero de
+   * la casa.
+   *
+   * Va aparte de `documents` y no dentro, aunque las dos cosas sean "texto que
+   * identifica": es con diferencia lo que mas aparece, y mezclarlo con recibos
+   * y cedulas hace que el asesor no sepa que esta mirando. Ademas el riesgo es
+   * distinto — una cedula no debe publicarse nunca, y una direccion legible es
+   * una decision comercial de la agencia.
+   *
+   * Puede faltar en los analisis guardados antes de que existiera. Eso es
+   * honesto: no significa que no hubiera direccion, significa que no se
+   * pregunto.
+   */
+  address: boolean;
   notes: string | null;
 }
 

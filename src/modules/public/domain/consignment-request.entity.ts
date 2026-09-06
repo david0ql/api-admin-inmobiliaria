@@ -70,6 +70,37 @@ export interface ConsignmentFile {
 }
 
 /**
+ * Lo que le pasó a un fichero que el propietario mandó y no está en `files`.
+ *
+ * Existe porque el hecho se perdía. Una foto que la puerta rechaza y un
+ * documento cuyo guardado falla acababan los dos igual: descartados en
+ * silencio. El propietario cree que mandó la escritura, el asesor no sabe que
+ * falta, y la solicitud queda incompleta sin que ninguno de los dos se entere
+ * — que es la peor forma de fallar, porque nada parece roto.
+ *
+ * Es una lista estructurada y no una cadena "nombre.jpg: motivo" porque quien
+ * la pinta necesita el nombre y el motivo por separado, y partir por comillas
+ * y dos puntos se rompe con los nombres que sube la gente desde el móvil.
+ *
+ * Se guarda junto a los ficheros y se lee en la ficha de la solicitud. NO se le
+ * devuelve al propietario: quien manda su casa no se merece una lista de
+ * reproches, está preguntando si a la agencia le interesa. Esto es para el
+ * asesor que revisa.
+ */
+export interface ConsignmentFileNote {
+  originalName: string;
+  kind: 'DOCUMENT' | 'PHOTO';
+  /** Ya redactado en español, listo para pintar tal cual. */
+  message: string;
+  /**
+   * `true` si el fichero NO está en la solicitud —lo rechazó la puerta o falló
+   * el guardado— y por tanto hay que pedírselo otra vez al propietario.
+   * `false` es un aviso sobre una foto que sí entró.
+   */
+  blocked: boolean;
+}
+
+/**
  * Solicitud de consignacion: un propietario que ofrece su inmueble.
  *
  * Sustituye al formulario de Google que la agencia venia usando. La diferencia
@@ -279,6 +310,20 @@ export class ConsignmentRequest extends BaseEntity {
   })
   @Column({ type: 'jsonb', default: () => "'[]'" })
   files: ConsignmentFile[];
+
+  /**
+   * Lo que la puerta dijo de las fotos, y lo que no se pudo guardar.
+   *
+   * Va aparte de `notes` a propósito: `notes` es el mensaje que escribió el
+   * propietario y el panel lo pinta como "Observaciones del propietario".
+   * Mezclar aquí los avisos técnicos le pisaría lo suyo.
+   */
+  @ApiProperty({
+    description:
+      'Fotos rechazadas, avisos y ficheros que no se pudieron guardar',
+  })
+  @Column({ name: 'file_notes', type: 'jsonb', default: () => "'[]'" })
+  fileNotes: ConsignmentFileNote[];
 
   @ApiPropertyOptional({
     nullable: true,

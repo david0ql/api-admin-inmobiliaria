@@ -28,6 +28,7 @@ import type {
   AnalysisResponse,
   ImageJudgement,
 } from './image-analysis.contract';
+import { RoomKind } from './domain/image-analysis.enums';
 
 /**
  * Cuantas fotos caben en una llamada.
@@ -49,6 +50,29 @@ const MAX_POR_LOTE = 20;
  * estudio, que es lo que se le pregunta.
  */
 const VARIANTE = '-m.webp';
+
+/**
+ * Lo que un comprador espera ver de una vivienda antes de llamar.
+ *
+ * No es "todas las estancias": es la lista corta de las que, si faltan, cuestan
+ * visitas. Nadie compra sin ver la cocina y el bano, y una ficha sin fachada no
+ * se sabe ni donde esta.
+ */
+const IMPRESCINDIBLES_VIVIENDA: readonly RoomKind[] = [
+  RoomKind.FACADE,
+  RoomKind.LIVING,
+  RoomKind.KITCHEN,
+  RoomKind.BATHROOM,
+  RoomKind.BEDROOM,
+];
+
+/**
+ * Y de un lote o un local sin construir, donde una cocina no falta: no existe.
+ */
+const IMPRESCINDIBLES_SUELO: readonly RoomKind[] = [
+  RoomKind.FACADE,
+  RoomKind.EXTERIOR,
+];
 
 /** Una fila de `image_analysis` a punto de escribirse: solo columnas. */
 type FilaAnalisis = Omit<
@@ -258,6 +282,8 @@ export class ImageAnalysisService {
           promptVersion: prompt.version,
           model: respuesta.model,
           actor,
+          property,
+          rooms: analyzed.map((a) => a.room),
         })
       : null;
 
@@ -448,6 +474,9 @@ export class ImageAnalysisService {
       promptVersion: number;
       model: string;
       actor: AuthenticatedActor;
+      property: Property;
+      /** Las estancias que el modelo acaba de asignar a estas fotos. */
+      rooms: RoomKind[];
     },
   ): Promise<ImageAlbumAnalysis> {
     const aId = (i: number) => cargadas[i]?.image.id ?? null;
@@ -475,13 +504,46 @@ export class ImageAnalysisService {
         batchId: ctx.batchId,
         suggestedOrder: orden,
         coverImageId: aId(album.coverIndex) ?? orden[0] ?? null,
-        missing: album.missing,
+        missing: this.calcularQueFalta(ctx.property, ctx.rooms),
         summary: album.summary || null,
         promptVersion: ctx.promptVersion,
         model: ctx.model,
         createdByAgentId: ctx.actor.id,
       }),
     );
+  }
+
+  /**
+   * Que estancias faltan, restando conjuntos.
+   *
+   * Esto lo pedia el prompt y lo contestaba el modelo, y salia mal de una forma
+   * muy concreta: decia que faltaba la cocina en albumes donde el mismo acababa
+   * de clasificar una foto como cocina. Se contradecia dentro de la misma
+   * respuesta, porque no es una pregunta de criterio — es una resta, y una
+   * resta no se le pide a un modelo de lenguaje.
+   *
+   * Que se considera imprescindible depende de lo que sea el inmueble: en un
+   * lote la cocina no falta, no existe. Se decide por lo que la propia ficha
+   * declara, no por lo que opine nadie.
+   *
+   * Solo mira el lote analizado. Si un inmueble tiene treinta fotos y se han
+   * analizado veinte, "falta la cocina" puede querer decir que esta en las diez
+   * restantes; por eso el panel enseña cuantas quedan sin analizar al lado.
+   */
+  private calcularQueFalta(property: Property, rooms: RoomKind[]): RoomKind[] {
+    // Sin alcobas ni area construida no es una vivienda: es suelo.
+    const esVivienda = Boolean(property.bedrooms || property.builtArea);
+    const esperadas = esVivienda
+      ? IMPRESCINDIBLES_VIVIENDA
+      : IMPRESCINDIBLES_SUELO;
+
+    const hay = new Set(rooms);
+    // La fachada se da por vista si hay cualquier toma del exterior: en un
+    // apartamento en altura, "la fachada" suele ser una foto del edificio
+    // clasificada como EXTERIOR, y exigir las dos seria inventarse una falta.
+    if (hay.has(RoomKind.EXTERIOR)) hay.add(RoomKind.FACADE);
+
+    return esperadas.filter((r) => !hay.has(r));
   }
 
   /** El techo por lote, para que el panel lo pueda enseñar antes de pulsar. */

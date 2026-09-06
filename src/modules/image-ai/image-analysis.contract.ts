@@ -86,6 +86,7 @@ export const privacySchema = z
       plates: z.boolean(),
       documents: z.boolean(),
       screens: z.boolean(),
+      address: z.boolean(),
       notes: z.string().nullable(),
     }),
   );
@@ -120,16 +121,19 @@ export const albumJudgementSchema = z.object({
     )
     .pipe(z.array(z.number())),
   coverIndex: acotado(0, 999, 0),
+  /*
+    Se acepta lo que mande el modelo, pero NO se guarda: `missing` se calcula
+    en codigo a partir de los `room` que el mismo acaba de asignar.
+
+    Es una resta de conjuntos, y pedirsela a un modelo sale mal de una forma muy
+    concreta: llega a decir que falta la cocina en un album donde acaba de
+    clasificar una foto como KITCHEN. Se contradice consigo mismo en la misma
+    respuesta. Lo mecanico va en codigo, igual que la resolucion y la
+    orientacion; al modelo se le pregunta lo que solo el puede ver.
+  */
   missing: z
     .unknown()
-    .transform((v) =>
-      (Array.isArray(v) ? v : [])
-        .map((x) => (typeof x === 'string' ? x.trim().toUpperCase() : ''))
-        .filter((s): s is RoomKind =>
-          (Object.values(RoomKind) as string[]).includes(s),
-        )
-        .slice(0, 12),
-    )
+    .transform(() => [] as RoomKind[])
     .pipe(z.array(z.enum(RoomKind))),
   summary: texto(1000),
 });

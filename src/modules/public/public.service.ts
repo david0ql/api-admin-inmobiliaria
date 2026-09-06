@@ -50,6 +50,7 @@ import {
   ConsignmentRequest,
   ConsignmentStatus,
   type ConsignmentFile,
+  type ConsignmentFileNote,
 } from './domain/consignment-request.entity';
 import type { BookVisitDto, CreateConsignmentDto } from './dto/consignment.dto';
 import type { SearchPublicProjectsDto } from './dto/public-projects.dto';
@@ -1231,10 +1232,23 @@ export class PublicService {
   }
 
   /** Adjunta documentos y fotos a una solicitud ya creada. */
-  async attachFiles(id: string, files: ConsignmentFile[]): Promise<void> {
+  /**
+   * Cuelga de la solicitud lo que llego con ella.
+   *
+   * `notes` va en la MISMA llamada que `files` y no en otra aparte porque son
+   * la misma verdad contada entera: lo que entro y lo que no. Guardarlas por
+   * separado permitiria que un dia se guardara una sin la otra, y entonces la
+   * ficha diria "tres fotos" sin decir que hubo una cuarta que se cayo.
+   */
+  async attachFiles(
+    id: string,
+    files: ConsignmentFile[],
+    notes: ConsignmentFileNote[] = [],
+  ): Promise<void> {
     const request = await this.consignments.findOne({ where: { id } });
     if (!request) throw new NotFoundException('Solicitud no encontrada');
     request.files = [...request.files, ...files];
+    request.fileNotes = [...(request.fileNotes ?? []), ...notes];
     await this.consignments.save(request);
   }
 

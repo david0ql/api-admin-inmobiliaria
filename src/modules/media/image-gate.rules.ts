@@ -292,9 +292,16 @@ export const GATE_MESSAGES = {
   washedOut: () =>
     `La foto ha salido lavada o con la ventana quemada de blanco. Prueba a hacerla con la luz de fuera a tu espalda, o toca la parte clara de la pantalla antes de disparar para que el movil baje la exposicion.`,
 
-  duplicate: () =>
-    `Esta foto ya esta subida en este inmueble, identica. Se descarta para no repetirla en la ficha.`,
+  /*
+    `que` es como se llama la galeria en la que se esta subiendo: "este
+    inmueble", "este proyecto", "esta tipologia". Lo trae `Coleccion.que`, que
+    ya lo sabe. Sin esto, subir el plano repetido de una tipologia contestaba
+    "ya esta subida en este inmueble" y quien lo lee cree que se equivoco de
+    pantalla.
+  */
+  duplicate: (que: string) =>
+    `Esta foto ya esta subida en ${que}, identica. Se descarta para no repetirla en la ficha.`,
 
-  nearDuplicate: () =>
-    `Esta foto es casi igual que otra que ya esta subida. Entra, pero si son la misma escena conviene dejar solo la mejor: una galeria con la misma sala cuatro veces cansa al que la mira.`,
+  nearDuplicate: (que: string) =>
+    `Esta foto es casi igual que otra que ya esta subida en ${que}. Entra, pero si son la misma escena conviene dejar solo la mejor: una galeria con la misma sala cuatro veces cansa al que la mira.`,
 } as const;

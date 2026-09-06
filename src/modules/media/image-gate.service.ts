@@ -75,6 +75,11 @@ export class ImageGateService {
     originalName: string,
     profile: GateProfile,
     previas: HuellaPrevia[] = [],
+    /**
+     * Como se llama la galeria en los mensajes: "este inmueble", "este
+     * proyecto", "esta tipologia". Lo sabe quien esta guardando, no esto.
+     */
+    que = 'este inmueble',
   ): Promise<GateResult> {
     const rules = await this.settings.rules(profile);
     const nombre = originalName || 'imagen';
@@ -100,7 +105,7 @@ export class ImageGateService {
       };
     }
 
-    const issues = this.check(metrics, nombre, rules, profile, previas);
+    const issues = this.check(metrics, nombre, rules, profile, previas, que);
     return {
       accepted: !issues.some((i) => i.severity === GateSeverity.BLOCK),
       issues,
@@ -173,6 +178,7 @@ export class ImageGateService {
     rules: GateRules,
     profile: GateProfile,
     previas: HuellaPrevia[],
+    que: string,
   ): GateIssue[] {
     const issues: GateIssue[] = [];
     const bloquea = (
@@ -368,7 +374,7 @@ export class ImageGateService {
     // pueden ser dos fotos legitimas —una con la puerta abierta, otra con luz
     // distinta— y esa la elige una persona, no un umbral de Hamming.
     if (previas.some((p) => p.checksum && p.checksum === m.checksum)) {
-      bloquea(GateCode.DUPLICATE, GATE_MESSAGES.duplicate());
+      bloquea(GateCode.DUPLICATE, GATE_MESSAGES.duplicate(que));
     } else if (m.perceptualHash) {
       // La distancia se guarda, no solo se compara: el panel puede enseñar
       // "difiere en 2 bits de 64" y quien mira las dos fotos entiende de que se
@@ -381,7 +387,7 @@ export class ImageGateService {
       if (masParecida !== null && masParecida <= rules.nearDuplicateDistance) {
         avisa(
           GateCode.NEAR_DUPLICATE,
-          GATE_MESSAGES.nearDuplicate(),
+          GATE_MESSAGES.nearDuplicate(que),
           masParecida,
           rules.nearDuplicateDistance,
         );
