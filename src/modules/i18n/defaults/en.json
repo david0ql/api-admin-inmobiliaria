@@ -672,7 +672,7 @@
   "project.units.aria": "Project unit",
   "project.units.empty": "There are no units available in this project right now.",
   "project.units.empty.action": "See other properties",
-  "project.units.label": "Floor plans",
+  "project.units.label": "Unit types",
   "projects.count.one": "{total} project · page {page} of {pages}",
   "projects.count.other": "{total} projects · page {page} of {pages}",
   "projects.empty.action": "See properties for sale",
