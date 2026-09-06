@@ -204,11 +204,20 @@ Reglas del formato:
   COMMON_AREA, GYM, VIEW, FLOOR_PLAN, EXTERIOR, DETAIL, OTHER.
 - `roomConfidence` entre 0 y 1. `quality` y `coverScore` entre 0 y 100.
 - `caption` en espanol, maximo 140 caracteres, describiendo lo que se ve. Se
-  publica como texto alternativo de la imagen, asi que sirve tambien para quien
-  no puede verla.
+  publica en la web como texto alternativo de la imagen, asi que describe el
+  espacio y nada mas: **nunca menciones la marca de agua** ("con marca de agua",
+  "marca de agua al centro") ni hables de la foto como objeto. Di lo que hay en
+  la escena, para quien no puede verla.
 - `issues` y `fixes`, maximo cinco cada uno, una frase corta cada uno. `fixes`
   tiene que ser algo que el asesor pueda hacer manana: "repetirla con las
   cortinas abiertas", no "mejorar la iluminacion".
+- `privacy` lleva SIEMPRE sus cinco booleanos, en todas y cada una de las
+  imagenes, aunque sean todos false: `faces`, `plates`, `documents`, `screens`
+  y `address`. Si te dejas uno, la respuesta entera se descarta. `notes` es la
+  unica que puede ir a null.
 - `usable` es false solo si la foto no deberia publicarse tal cual.
-- `suggestedOrder` contiene todos los indices, sin repetir, y su primer elemento
-  coincide con `coverIndex`.
+- `suggestedOrder` contiene todos los indices, sin repetir ni saltarse ninguno.
+- `coverIndex` tiene que ser EXACTAMENTE el primer numero de `suggestedOrder`.
+  Decide primero cual es la portada, ponla la primera del orden y copia ese
+  mismo numero en `coverIndex`. Si no coinciden, la ficha ensena una portada y
+  ordena por otra.
