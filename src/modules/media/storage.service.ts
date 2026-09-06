@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import sharp from 'sharp';
@@ -197,10 +197,10 @@ export class StorageService {
       .toBuffer();
 
     await Promise.all([
-      writeFile(join(this.root, thumbKey), thumb),
-      writeFile(join(this.root, mediumKey), medium),
-      writeFile(join(this.root, largeKey), large),
-      writeFile(join(this.root, originalKey), archive),
+      this.escribirEntero(thumbKey, thumb),
+      this.escribirEntero(mediumKey, medium),
+      this.escribirEntero(largeKey, large),
+      this.escribirEntero(originalKey, archive),
     ]);
 
     return {
@@ -215,6 +215,32 @@ export class StorageService {
       mimeType: 'image/webp',
       checksum,
     };
+  }
+
+  /**
+   * Escribe el fichero entero o no lo escribe.
+   *
+   * Se escribe a un nombre temporal y se renombra al definitivo, que dentro
+   * del mismo sistema de ficheros es atomico: o el fichero esta completo o no
+   * esta. Con `writeFile` directo, un proceso que se corta a media escritura
+   * —un despliegue, un OOM, una importacion interrumpida— deja un webp a
+   * medias con su nombre bueno, y a partir de ahi es un fichero que existe,
+   * que la base nombra y que ningun decodificador abre. En `uploads/` hay dos
+   * asi, de 512 KiB clavados, de una importacion que se corto.
+   *
+   * Si el renombrado falla se limpia el temporal: un `.tmp` olvidado no lo
+   * nombra nadie, pero ocupa.
+   */
+  private async escribirEntero(key: string, datos: Buffer): Promise<void> {
+    const destino = join(this.root, key);
+    const temporal = `${destino}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporal, datos);
+      await rename(temporal, destino);
+    } catch (error) {
+      await rm(temporal, { force: true });
+      throw error;
+    }
   }
 
   /**

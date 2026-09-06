@@ -168,23 +168,37 @@ export class ImageCollectionService {
           scope,
           file.originalname,
         );
-        saved.push(
-          await this.insertarAlFinal(coleccion, {
-            ...owner,
-            storageKey: stored.key,
-            url: stored.url,
-            urlMedium: stored.urlMedium,
-            urlLarge: stored.urlLarge,
-            urlOriginal: stored.urlOriginal,
-            checksum: stored.checksum,
-            perceptualHash: veredicto.metrics.perceptualHash,
-            width: stored.width,
-            height: stored.height,
-            bytes: stored.bytes,
-            description: null,
-            kind,
-          } as DeepPartial<T>),
-        );
+
+        /*
+          A partir de aqui hay cuatro ficheros en disco que solo la fila los
+          nombra. Si el INSERT falla —la galeria se borro mientras subia, la
+          base se cayo— y no se deshace, quedan cuatro huerfanos que nadie
+          volvera a mirar ni a poder borrar, porque no hay ningun registro
+          desde el que llegar a ellos. Se ha visto pasar: en `uploads/` hay
+          ficheros de una importacion interrumpida que no estan en la base.
+        */
+        try {
+          saved.push(
+            await this.insertarAlFinal(coleccion, {
+              ...owner,
+              storageKey: stored.key,
+              url: stored.url,
+              urlMedium: stored.urlMedium,
+              urlLarge: stored.urlLarge,
+              urlOriginal: stored.urlOriginal,
+              checksum: stored.checksum,
+              perceptualHash: veredicto.metrics.perceptualHash,
+              width: stored.width,
+              height: stored.height,
+              bytes: stored.bytes,
+              description: null,
+              kind,
+            } as DeepPartial<T>),
+          );
+        } catch (error) {
+          await this.storage.remove(stored.key);
+          throw error;
+        }
       } catch (error) {
         rejected.push({
           name: file.originalname,
