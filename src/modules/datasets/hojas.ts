@@ -54,7 +54,23 @@ const ZONA = 'America/Bogota';
  * entera vacia.
  */
 export type TipoColumna =
-  'texto' | 'numero' | 'moneda' | 'fecha' | 'fechaHora' | 'booleano';
+  | 'texto'
+  | 'numero'
+  | 'moneda'
+  | 'fecha'
+  | 'fechaHora'
+  | 'booleano'
+  /**
+   * Un uuid con el que se cruzan las hojas entre si.
+   *
+   * Es su propio tipo y no `texto` porque para una persona no es texto: no se
+   * lee, no se agrupa —agrupar por id da un grupo por fila— y ocupa media
+   * pantalla de ancho. Que lo diga la API y no una lista de nombres escrita a
+   * mano en la interfaz es lo que hace que al añadir una hoja nueva la rejilla
+   * ya sepa que hacer con sus claves sin que nadie se acuerde de ir a
+   * actualizarla.
+   */
+  | 'identificador';
 
 /**
  * Una columna de una hoja.
@@ -218,7 +234,7 @@ const INMUEBLES: DefinicionHoja = {
     // El id va primero y en texto porque es la clave con la que se cruzan las
     // hojas: sin el, un BUSCARV entre Inmuebles y Relaciones tendria que
     // apoyarse en el titulo, y hay titulos repetidos.
-    { key: 'id', label: 'Id', tipo: 'texto', sql: 'property.id' },
+    { key: 'id', label: 'Id', tipo: 'identificador', sql: 'property.id' },
     { key: 'codigo', label: 'Código', tipo: 'texto', sql: 'property.code' },
     { key: 'titulo', label: 'Título', tipo: 'texto', sql: 'property.title' },
     { key: 'tipo', label: 'Tipo', tipo: 'texto', sql: 'tipo.name' },
@@ -372,7 +388,7 @@ const CLIENTES: DefinicionHoja = {
     'Una fila por cliente o lead, con su embudo, su etapa y su asesor. ' +
     'Lleva datos personales: solo llega a quien ya ve esos clientes en el CRM.',
   columnas: [
-    { key: 'id', label: 'Id', tipo: 'texto', sql: 'client.id' },
+    { key: 'id', label: 'Id', tipo: 'identificador', sql: 'client.id' },
     {
       key: 'nombre',
       label: 'Nombre',
@@ -497,11 +513,11 @@ const RELACIONES: DefinicionHoja = {
     'vendedor, interesado. Es la hoja que hace que una tabla dinámica cruce ' +
     'las otras dos.',
   columnas: [
-    { key: 'id', label: 'Id', tipo: 'texto', sql: 'interes.id' },
+    { key: 'id', label: 'Id', tipo: 'identificador', sql: 'interes.id' },
     {
       key: 'idCliente',
       label: 'Id cliente',
-      tipo: 'texto',
+      tipo: 'identificador',
       sql: 'interes.client_id',
     },
     {
@@ -513,7 +529,7 @@ const RELACIONES: DefinicionHoja = {
     {
       key: 'idInmueble',
       label: 'Id inmueble',
-      tipo: 'texto',
+      tipo: 'identificador',
       sql: 'interes.property_id',
     },
     { key: 'codigo', label: 'Código', tipo: 'texto', sql: 'property.code' },
@@ -634,7 +650,7 @@ const CITAS: DefinicionHoja = {
     'La agenda como filas: quién, cuándo, con qué cliente y sobre qué ' +
     'inmueble. Es el eje temporal que las otras hojas no tienen.',
   columnas: [
-    { key: 'id', label: 'Id', tipo: 'texto', sql: 'cita.id' },
+    { key: 'id', label: 'Id', tipo: 'identificador', sql: 'cita.id' },
     {
       key: 'tipo',
       label: 'Tipo',
@@ -682,7 +698,7 @@ const CITAS: DefinicionHoja = {
     {
       key: 'idCliente',
       label: 'Id cliente',
-      tipo: 'texto',
+      tipo: 'identificador',
       sql: 'cita.client_id',
     },
     {
@@ -694,7 +710,7 @@ const CITAS: DefinicionHoja = {
     {
       key: 'idInmueble',
       label: 'Id inmueble',
-      tipo: 'texto',
+      tipo: 'identificador',
       sql: 'cita.property_id',
     },
     { key: 'codigo', label: 'Código', tipo: 'texto', sql: 'property.code' },
@@ -769,7 +785,7 @@ const INVENTARIO: DefinicionHoja = {
     {
       key: 'idProyecto',
       label: 'Id proyecto',
-      tipo: 'texto',
+      tipo: 'identificador',
       sql: 'proyecto.id',
     },
     { key: 'proyecto', label: 'Proyecto', tipo: 'texto', sql: 'proyecto.name' },
