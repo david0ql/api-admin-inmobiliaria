@@ -55,8 +55,11 @@ export class FamiliesController {
   }
 
   @Get('families/:id')
+  @ApiOperation({
+    summary: 'Ficha del proyecto, con sus etapas y su galería',
+  })
   findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.families.findById(id);
+    return this.families.findById(id, { conImagenes: true });
   }
 
   @Get('families/:id/properties')

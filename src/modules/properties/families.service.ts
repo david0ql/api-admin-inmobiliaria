@@ -78,16 +78,34 @@ export class FamiliesService {
    *
    * Va por QueryBuilder para poder acotar por sede: desde la web publica no hay
    * sede en el contexto y no filtra nada, que es lo que debe pasar ahi.
+   *
+   * La galeria solo viaja si se pide. Esta funcion es tambien el portero de
+   * media aplicacion —la llaman el alta de tipologias, el reordenado, la
+   * asignacion de inmuebles y el recorrido del arbol, que no quieren fotos— y
+   * unirlas siempre seria pagar la galeria entera cada vez que alguien
+   * comprueba que un proyecto existe.
    */
-  async findById(id: string): Promise<PropertyFamily> {
+  async findById(
+    id: string,
+    { conImagenes = false } = {},
+  ): Promise<PropertyFamily> {
     const qb = this.repo
       .createQueryBuilder('family')
       .leftJoinAndSelect('family.children', 'children')
       .where('family.id = :id', { id });
+    if (conImagenes) {
+      qb.leftJoinAndSelect('family.images', 'images').addOrderBy(
+        'images.position',
+        'ASC',
+      );
+    }
     applyBranchScope(qb, 'family.branch_id');
 
     const family = await qb.getOne();
     if (!family) throw new NotFoundException(`Proyecto ${id} no encontrado`);
+    // Se pidio: si no tiene ninguna, la respuesta es "ninguna" y no "no se
+    // pregunto".
+    if (conImagenes) family.images ??= [];
     return family;
   }
 
