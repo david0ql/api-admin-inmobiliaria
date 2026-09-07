@@ -13,6 +13,12 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { AppConfigService } from '../../shared/config/app-config.service';
 import { StorageService } from '../media/storage.service';
+import { ImageGateService } from '../media/image-gate.service';
+import { GateProfile } from '../media/image-gate.rules';
+import type { GateRules, ImageMetrics } from '../media/image-gate.rules';
+import { GateSettingsService } from '../media/gate-settings.service';
+import { resolverEncuadre } from './framing';
+import type { Encuadre, EstadoFisico } from './framing';
 import { OpenAiProvider } from '../assistant/openai-provider';
 import type { VisionImage } from '../assistant/vision-provider';
 import { Property } from '../properties/domain/property.entity';
@@ -66,10 +72,26 @@ const IMPRESCINDIBLES_SUELO: readonly RoomKind[] = [
   RoomKind.EXTERIOR,
 ];
 
-/** Una imagen del inmueble con su fichero ya leido de disco. */
+/** Una imagen del inmueble con su fichero ya leido de disco y ya medida. */
 interface Cargada {
   image: PropertyImage;
   buffer: Buffer;
+  /**
+   * Lo que mide la puerta de codigo sobre el fichero ORIGINAL, no sobre la copia
+   * de 800 px que se le manda al modelo.
+   *
+   * La distincion no es un detalle: midiendo la copia, las 6.306 fotos del
+   * inventario salen "por debajo del minimo de 1024 px" y el modelo se pasa el
+   * analisis entero diciendole al asesor que repita fotos que estan bien.
+   */
+  metricas: ImageMetrics | null;
+  /** Cuanto ocupa la franja muerta de cada borde, sobre la copia que ve el modelo. */
+  franjas: {
+    arriba: number;
+    abajo: number;
+    izquierda: number;
+    derecha: number;
+  };
 }
 
 /**
@@ -110,6 +132,8 @@ export class ImageAnalysisService {
     private readonly provider: OpenAiProvider,
     private readonly storage: StorageService,
     private readonly config: AppConfigService,
+    private readonly gate: ImageGateService,
+    private readonly gateSettings: GateSettingsService,
   ) {}
 
   /** Si hay clave y esta encendido. Lo consulta el controller para dar 503. */
@@ -274,6 +298,17 @@ export class ImageAnalysisService {
       );
     }
 
+    /*
+      Los umbrales de la puerta, para poder decirle al modelo "esta movida" en
+      lugar de un numero. Se leen una vez por lote y no por foto: son
+      configuracion del panel, no dependen de la imagen.
+
+      Perfil de inventario siempre, aunque las fotos hayan entrado por una
+      solicitud: quien lee esto es el equipo decidiendo que se publica, y el
+      liston de lo que se publica es el mismo venga la foto de donde venga.
+    */
+    const reglas = await this.gateSettings.rules(GateProfile.INVENTORY);
+
     const cargadas = await this.cargar(lote);
     if (!cargadas.length) {
       throw new BadRequestException(
@@ -315,7 +350,13 @@ export class ImageAnalysisService {
     let modelo = model;
 
     for (const tanda of tandas) {
-      const r = await this.preguntarTanda(property, tanda, prompt.body, model);
+      const r = await this.preguntarTanda(
+        property,
+        tanda,
+        prompt.body,
+        model,
+        reglas,
+      );
       inputTokens += r.usage?.inputTokens ?? 0;
       outputTokens += r.usage?.outputTokens ?? 0;
       modelo = r.model;
@@ -346,6 +387,7 @@ export class ImageAnalysisService {
           faltan,
           prompt.body,
           model,
+          reglas,
         );
         inputTokens += reintento.usage?.inputTokens ?? 0;
         outputTokens += reintento.usage?.outputTokens ?? 0;
@@ -369,6 +411,7 @@ export class ImageAnalysisService {
       promptHash,
       model: modelo,
       actor,
+      reglas,
     });
 
     const album = albumes.length
@@ -432,6 +475,7 @@ export class ImageAnalysisService {
     tanda: Cargada[],
     system: string,
     model: string,
+    reglas: GateRules,
   ): Promise<{
     juicios: Map<number, ImageJudgement>;
     album: AlbumJudgement | null;
@@ -441,7 +485,7 @@ export class ImageAnalysisService {
     const respuesta = await this.provider.seeJson({
       model,
       system,
-      user: this.contexto(property, tanda),
+      user: this.contexto(property, tanda, reglas),
       images: tanda.map((c): VisionImage => ({
         mimeType: 'image/webp',
         data: c.buffer,
@@ -548,16 +592,46 @@ export class ImageAnalysisService {
     const salida: Cargada[] = [];
     for (const image of imagenes) {
       const key = image.storageKey.replace(/-o\.webp$/, VARIANTE);
+      let buffer: Buffer;
       try {
-        salida.push({
-          image,
-          buffer: await readFile(join(this.storage.root, key)),
-        });
+        buffer = await readFile(join(this.storage.root, key));
       } catch {
         // Un fichero que falta no puede tumbar el lote: se analiza el resto y
         // esa foto se queda sin juicio, que es exactamente lo que pasa.
         this.logger.warn(`No esta en disco: ${key}`);
+        continue;
       }
+
+      /*
+        Las medidas de nitidez y exposicion salen del ORIGINAL, no de la copia
+        de 800 px que se le manda al modelo, y la diferencia importa: la copia
+        esta por debajo del minimo de 1024 px SIEMPRE, asi que midiendola el
+        analisis entero acabaria diciendo que las 6.306 fotos hay que
+        repetirlas. Las franjas, en cambio, se miden sobre la copia: son
+        proporciones del encuadre y no cambian con el tamaño, y asi se mide lo
+        mismo que el modelo esta viendo.
+      */
+      let metricas: ImageMetrics | null = null;
+      try {
+        metricas = await this.gate.measure(
+          await readFile(join(this.storage.root, image.storageKey)),
+        );
+      } catch {
+        // Sin original legible se sigue adelante sin sus cifras: el juicio del
+        // modelo vale igual, solo se pierde el poder decir "esta movida".
+        this.logger.debug(`Sin original para medir: ${image.storageKey}`);
+      }
+
+      let franjas = { arriba: 0, abajo: 0, izquierda: 0, derecha: 0 };
+      try {
+        franjas = await this.gate.deadBands(buffer);
+      } catch {
+        // Sin franjas no se confirma ningun recorte, que es el lado seguro:
+        // las propuestas quedan para que las mire una persona.
+        this.logger.debug(`No se pudieron medir las franjas de: ${key}`);
+      }
+
+      salida.push({ image, buffer, metricas, franjas });
     }
     return salida;
   }
@@ -569,7 +643,11 @@ export class ImageAnalysisService {
    * orientacion— para que no gaste su atencion en adivinarlas y para que no
    * contradiga a la puerta de codigo delante del asesor.
    */
-  private contexto(property: Property, cargadas: Cargada[]): string {
+  private contexto(
+    property: Property,
+    cargadas: Cargada[],
+    reglas: GateRules,
+  ): string {
     const ficha = [
       `Inmueble ${property.code}: ${property.title}`,
       property.bedrooms ? `${property.bedrooms} alcobas` : null,
@@ -579,20 +657,7 @@ export class ImageAnalysisService {
       .filter(Boolean)
       .join(' · ');
 
-    const lineas = cargadas.map((c, i) => {
-      const { width, height } = c.image;
-      const forma =
-        width && height
-          ? width > height
-            ? 'horizontal'
-            : width === height
-              ? 'cuadrada'
-              : 'vertical'
-          : 'sin medidas';
-      return `  ${i}: ${width ?? '?'}x${height ?? '?'} px (${forma})${
-        c.image.isMain ? ' — hoy es la portada' : ''
-      }`;
-    });
+    const lineas = cargadas.map((c, i) => this.linea(i, c, reglas));
 
     return [
       ficha,
@@ -602,6 +667,68 @@ export class ImageAnalysisService {
       '',
       'Devuelve el JSON con una entrada por foto y el juicio del conjunto.',
     ].join('\n');
+  }
+
+  /**
+   * La linea que acompaña a cada foto: lo que ya se sabe de ella con certeza.
+   *
+   * El prompt le promete al modelo que "la resolucion, la orientacion, la
+   * nitidez y la exposicion te llegan escritas junto a cada imagen". Hasta
+   * ahora solo le llegaba el tamaño, asi que esa frase era falsa y el modelo
+   * opinaba igualmente sobre si una foto estaba movida — que es justo lo que se
+   * queria evitar.
+   *
+   * Se dice en palabras y no en cifras a proposito. "Movida" es accionable;
+   * "nitidez 63,4" obliga al modelo a comparar contra un umbral que no conoce,
+   * y comparar numeros es lo que hace peor.
+   */
+  private linea(i: number, c: Cargada, reglas: GateRules): string {
+    const { width, height } = c.image;
+    const partes: string[] = [];
+    partes.push(
+      width && height
+        ? `${width}x${height} px (${
+            width > height
+              ? 'horizontal'
+              : width === height
+                ? 'cuadrada'
+                : 'vertical'
+          })`
+        : 'sin medidas',
+    );
+
+    const m = c.metricas;
+    if (m) {
+      if (m.width < reglas.minWidth)
+        partes.push(
+          'POR DEBAJO del minimo, no se puede publicar a buen tamaño',
+        );
+      else if (m.width < reglas.recommendedWidth)
+        partes.push('corta para la ficha');
+
+      /*
+        Oscura antes que movida, y nunca las dos: una foto a oscuras pierde
+        contraste local, asi que la varianza del laplaciano se hunde y sale
+        "movida" aunque el enfoque sea perfecto. Es la misma regla que aplica la
+        puerta al avisar, y decirle al modelo las dos cosas seria pedirle que
+        contradiga a la unica que es cierta.
+      */
+      const oscura =
+        m.brightness < reglas.minBrightness ||
+        m.darkFraction > reglas.maxDarkFraction;
+      if (oscura) partes.push('oscura');
+      else if (m.sharpness < reglas.minSharpness)
+        partes.push('movida o desenfocada');
+      if (
+        m.brightness > reglas.maxBrightness ||
+        m.brightFraction > reglas.maxBrightFraction
+      ) {
+        partes.push('quemada de luces');
+      }
+    }
+
+    if (c.image.isMain) partes.push('hoy es la portada');
+    return `  ${i}: ${partes.join(' — ')}`;
   }
 
   /**
@@ -620,6 +747,8 @@ export class ImageAnalysisService {
       promptHash: string;
       model: string;
       actor: AuthenticatedActor;
+      /** Los umbrales con los que se decide si una foto tiene arreglo. */
+      reglas: GateRules;
     },
   ): Promise<ImageAnalysis[]> {
     /*
@@ -652,6 +781,7 @@ export class ImageAnalysisService {
         issues: juicio.issues,
         fixes: juicio.fixes,
         privacy: juicio.privacy,
+        framing: this.encuadre(cargada, juicio, ctx.reglas),
         usable: juicio.usable,
         promptVersion: ctx.promptVersion,
         promptHash: ctx.promptHash,
@@ -683,6 +813,53 @@ export class ImageAnalysisService {
         model: ctx.model,
       },
     });
+  }
+
+  /**
+   * La propuesta de encuadre de una foto: lo que ve el modelo, contrastado con
+   * lo que mide el codigo.
+   *
+   * El reparto esta explicado entero en `framing.ts`. Aqui solo se traduce lo
+   * que sabe este servicio —las cifras de la puerta y el juicio del modelo— al
+   * `EstadoFisico` que aquella funcion necesita para decidir.
+   */
+  private encuadre(
+    cargada: Cargada,
+    juicio: ImageJudgement,
+    reglas: GateRules,
+  ): Encuadre {
+    const m = cargada.metricas;
+
+    const estado: EstadoFisico = {
+      /*
+        "Irrecuperable" se decide con la medida, no con la opinion: una foto
+        movida no se salva recortandola, y eso ya lo sabe la puerta. Lo oscuro
+        se antepone a lo movido por la misma razon que en `linea`: a oscuras la
+        varianza del laplaciano se hunde sola.
+      */
+      irrecuperable: Boolean(
+        m &&
+        reglas &&
+        (m.brightness < reglas.minBrightness ||
+          m.darkFraction > reglas.maxDarkFraction ||
+          m.brightness > reglas.maxBrightness ||
+          m.brightFraction > reglas.maxBrightFraction ||
+          m.sharpness < reglas.minSharpness),
+      ),
+      pequena: Boolean(m && m.width < reglas.minWidth),
+      /*
+        Que no sea una foto del inmueble lo decide el modelo, porque es lo unico
+        de los tres que hay que MIRAR: el logo sobre fondo liso, un plano o una
+        captura de pantalla. La nota por debajo de 11 es como el prompt le pide
+        que lo diga desde hace tiempo, asi que no hay que preguntarselo otra vez.
+      */
+      noEsFoto:
+        juicio.quality < 11 ||
+        juicio.room === RoomKind.FLOOR_PLAN ||
+        !juicio.usable,
+    };
+
+    return resolverEncuadre(juicio.encuadre, cargada.franjas, estado);
   }
 
   /** Guarda el juicio del conjunto, traduciendo indices del lote a ids. */

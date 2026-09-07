@@ -246,3 +246,91 @@ describe('parseAnalysisResponse', () => {
     expect(r.album?.missing).toEqual([]);
   });
 });
+
+/*
+  El campo del encuadre, con el mismo criterio blando que todo lo demas: que
+  falte, que venga mal o que venga con otro nombre no puede costar el analisis
+  del lote entero. La factura ya esta pagada cuando esto se ejecuta.
+*/
+describe('el encuadre', () => {
+  const conImagen = (imagen: Record<string, unknown>) =>
+    parseAnalysisResponse(JSON.stringify({ images: [imagen] })).images[0];
+
+  it('lee la lista de cortes que manda el modelo', () => {
+    const r = conImagen({
+      index: 0,
+      encuadre: {
+        recorte: [{ borde: 'ABAJO', porcion: 30, que: 'suelo vacio' }],
+      },
+    });
+
+    expect(r.encuadre).toEqual([
+      { borde: 'ABAJO', porcion: 30, que: 'suelo vacio' },
+    ]);
+  });
+
+  it('acepta que el prompt lo llame "retoque"', () => {
+    // El prompt vive en la base y lo edita gente desde el panel: un renombrado
+    // a mano no puede dejar el campo vacio en silencio.
+    const r = conImagen({
+      index: 0,
+      retoque: {
+        recorte: [{ borde: 'DERECHA', porcion: 12, que: 'la puerta' }],
+      },
+    });
+
+    expect(r.encuadre).toHaveLength(1);
+    expect(r.encuadre[0].borde).toBe('DERECHA');
+  });
+
+  it('sin encuadre, la lista va vacia y no revienta', () => {
+    expect(conImagen({ index: 0 }).encuadre).toEqual([]);
+  });
+
+  it('tira el borde que no existe en vez de fallar', () => {
+    const r = conImagen({
+      index: 0,
+      encuadre: {
+        recorte: [
+          { borde: 'ESQUINA', porcion: 20, que: 'algo' },
+          { borde: 'arriba', porcion: 20, que: 'techo' },
+        ],
+      },
+    });
+
+    // "ESQUINA" no existe y se descarta; "arriba" en minusculas si vale.
+    expect(r.encuadre).toEqual([
+      { borde: 'ARRIBA', porcion: 20, que: 'techo' },
+    ]);
+  });
+
+  it('acota la porcion al rango que se puede recortar', () => {
+    const r = conImagen({
+      index: 0,
+      encuadre: {
+        recorte: [
+          { borde: 'ABAJO', porcion: 90, que: 'suelo' },
+          { borde: 'ARRIBA', porcion: 'mucho', que: 'techo' },
+        ],
+      },
+    });
+
+    expect(r.encuadre[0].porcion).toBe(35);
+    // Lo que no es un numero cae al minimo, no al maximo: ante la duda, no
+    // recortar. Y de todas formas la cifra del modelo nunca se ejecuta.
+    expect(r.encuadre[1].porcion).toBe(1);
+  });
+
+  it('aguanta que el encuadre venga como cualquier cosa', () => {
+    expect(conImagen({ index: 0, encuadre: 'si' }).encuadre).toEqual([]);
+    expect(
+      conImagen({ index: 0, encuadre: { recorte: 'no' } }).encuadre,
+    ).toEqual([]);
+    expect(
+      conImagen({
+        index: 0,
+        encuadre: [{ borde: 'ABAJO', porcion: 5, que: 'x' }],
+      }).encuadre,
+    ).toHaveLength(1);
+  });
+});

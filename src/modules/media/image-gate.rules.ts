@@ -305,3 +305,18 @@ export const GATE_MESSAGES = {
   nearDuplicate: (que: string) =>
     `Esta foto es casi igual que otra que ya esta subida en ${que}. Entra, pero si son la misma escena conviene dejar solo la mejor: una galeria con la misma sala cuatro veces cansa al que la mira.`,
 } as const;
+
+/**
+ * Cuanto ocupa la franja muerta de cada borde, en porcentaje del alto (arriba
+ * y abajo) o del ancho (izquierda y derecha).
+ *
+ * Es una medida de COMPOSICION, no de calidad, y por eso no vive en
+ * `ImageMetrics`: no se calcula en cada subida —no decide si una foto entra—
+ * sino solo cuando alguien va a proponer un recorte.
+ */
+export interface DeadBands {
+  arriba: number;
+  abajo: number;
+  izquierda: number;
+  derecha: number;
+}

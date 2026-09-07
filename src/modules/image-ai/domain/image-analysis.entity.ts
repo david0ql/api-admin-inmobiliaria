@@ -3,6 +3,7 @@ import { Column, Entity, Index, JoinColumn, ManyToOne, Unique } from 'typeorm';
 import { BaseEntity } from '../../../shared/database/base.entity';
 import { PropertyImage } from '../../properties/domain/property-image.entity';
 import { RoomKind } from './image-analysis.enums';
+import type { Encuadre } from '../framing';
 
 /** Lo que el modelo dice que no deberia salir a una web publica. */
 export interface PrivacyFlags {
@@ -123,6 +124,22 @@ export class ImageAnalysis extends BaseEntity {
       `'{"faces":false,"plates":false,"documents":false,"screens":false,"notes":null}'::jsonb`,
   })
   privacy: PrivacyFlags;
+
+  /**
+   * Que se le haria a esta foto para que se vea mejor.
+   *
+   * Va aparte de `issues` y de `fixes` porque contesta otra pregunta. `issues`
+   * dice que esta mal y `fixes` que tiene que hacer una persona; esto dice que
+   * se puede hacer al ARCHIVO, con el borde, cuanto sobra y que hay ahi, y si
+   * el sistema puede aplicarlo solo o hace falta que alguien lo mire.
+   *
+   * Nula en los analisis hechos antes de que existiera, y eso es lo honesto: no
+   * significa que esas fotos esten bien encuadradas, significa que no se
+   * pregunto.
+   */
+  @ApiPropertyOptional({ nullable: true })
+  @Column({ type: 'jsonb', nullable: true })
+  framing: Encuadre | null;
 
   @ApiProperty({ description: 'Si sirve para publicar tal cual' })
   @Column({ type: 'boolean', default: true })

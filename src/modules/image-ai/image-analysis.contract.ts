@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { RoomKind } from './domain/image-analysis.enums';
+import { BORDES, type Borde, type CorteSugerido } from './framing';
 
 /**
  * Lo que el modelo TIENE que devolver, y como se sobrevive a que no lo haga.
@@ -109,25 +110,115 @@ export const privacySchema = z
     }),
   );
 
-export const imageJudgementSchema = z.object({
-  index: acotado(0, 999, 0),
-  room: estancia,
-  roomConfidence: acotado(0, 1, 0),
-  quality: acotado(0, 100, 50),
-  coverScore: acotado(0, 100, 0),
-  caption: texto(300),
-  issues: frases(5, 200),
-  fixes: frases(5, 200),
-  privacy: privacySchema,
-  // Por defecto `true`: si el modelo no se pronuncia, la foto entra. Lo
-  // contrario haria que un fallo del modelo escondiera fotos buenas y nadie
-  // sabria por que faltan.
-  usable: z
-    .unknown()
-    .optional()
-    .transform((v) => v !== false && v !== 'false')
-    .pipe(z.boolean()),
-});
+/**
+ * Lo que el modelo propone recortar, tal y como lo dice.
+ *
+ * Aqui NO se decide nada: se limpia. La entrada es una lista de bordes con una
+ * cifra y una frase, y lo unico que se garantiza es que lo que salga tenga esa
+ * forma. Quien decide si el corte se aplica es `resolverEncuadre`, cruzandolo
+ * con lo que mide el codigo — y esa separacion es a proposito: lo que dice el
+ * modelo se guarda tal cual para poder discutirlo despues, aunque no se ejecute.
+ *
+ * Blando como todo lo demas: un borde que no se reconoce se tira, pero no tumba
+ * el analisis de las otras once fotos del lote. La factura ya esta pagada.
+ */
+const cortesSugeridos = z
+  .unknown()
+  .optional()
+  .transform((v) => {
+    const lista = Array.isArray(v) ? v : [];
+    const salida: CorteSugerido[] = [];
+    for (const item of lista.slice(0, 4)) {
+      const o = (typeof item === 'object' && item ? item : {}) as Record<
+        string,
+        unknown
+      >;
+      const borde =
+        typeof o.borde === 'string' ? o.borde.trim().toUpperCase() : '';
+      if (!(BORDES as readonly string[]).includes(borde)) continue;
+      const n = Number(o.porcion);
+      /*
+        La cifra del modelo se guarda pero se acota a 1-35 y nunca se ejecuta:
+        esta medido que la subestima siempre —cuando la franja ocupaba el 40 %
+        contestaba 10 o 15— asi que sirve para ver que dijo, no para recortar.
+      */
+      salida.push({
+        borde: borde as Borde,
+        porcion: Number.isFinite(n)
+          ? Math.min(35, Math.max(1, Math.round(n)))
+          : 1,
+        que: typeof o.que === 'string' ? o.que.trim().slice(0, 120) : '',
+      });
+    }
+    return salida;
+  })
+  .pipe(
+    z.array(
+      z.object({
+        borde: z.enum(BORDES),
+        porcion: z.number(),
+        que: z.string(),
+      }),
+    ),
+  );
+
+/**
+ * Antes de validar, se normaliza el nombre del campo del encuadre.
+ *
+ * El prompt vive en la base de datos y lo edita gente desde el panel, asi que
+ * el dia que alguien lo reescriba y lo llame "retoque" —que es como se dice en
+ * la agencia— el campo tiene que seguir llegando. Un renombrado en un texto que
+ * se edita a mano no puede costar la funcion entera y en silencio.
+ */
+export const imageJudgementSchema = z.preprocess(
+  (v) => {
+    const o = (typeof v === 'object' && v ? v : {}) as Record<string, unknown>;
+    if (o.encuadre === undefined && o.retoque !== undefined) {
+      return { ...o, encuadre: o.retoque };
+    }
+    return o;
+  },
+  z.object({
+    index: acotado(0, 999, 0),
+    room: estancia,
+    roomConfidence: acotado(0, 1, 0),
+    quality: acotado(0, 100, 50),
+    coverScore: acotado(0, 100, 0),
+    caption: texto(300),
+    issues: frases(5, 200),
+    fixes: frases(5, 200),
+    privacy: privacySchema,
+    /*
+    El modelo lo manda dentro de `retoque` porque asi se le pide en el prompt y
+    asi lo entiende mejor —el objeto le da un sitio donde pensar el encuadre—,
+    pero aqui se aplana: lo que se guarda es una lista, y un objeto de una sola
+    clave alrededor solo seria una capa mas que abrir en la pantalla.
+
+    Se acepta tambien la lista suelta y la clave en ingles: no cuesta nada y
+    evita que un dia que alguien reescriba el prompt desde el panel el campo
+    entero llegue vacio sin que nadie sepa por que.
+  */
+    encuadre: z
+      .unknown()
+      .optional()
+      .transform((v) => {
+        const o = (typeof v === 'object' && v ? v : {}) as Record<
+          string,
+          unknown
+        >;
+        return Array.isArray(v) ? v : (o.recorte ?? o.crop ?? o.cortes);
+      })
+      .pipe(cortesSugeridos),
+    // Por defecto `true`: si el modelo no se pronuncia, la foto entra. Lo
+    // contrario haria que un fallo del modelo escondiera fotos buenas y nadie
+    // sabria por que faltan.
+    usable: z
+      .unknown()
+      .optional()
+      .transform((v) => v !== false && v !== 'false')
+      .pipe(z.boolean()),
+  }),
+);
 
 export const albumJudgementSchema = z.object({
   suggestedOrder: z

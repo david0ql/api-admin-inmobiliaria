@@ -8,6 +8,7 @@ import {
   GateCode,
   GateProfile,
   GateSeverity,
+  type DeadBands,
   type GateIssue,
   type GateResult,
   type GateRules,
@@ -31,6 +32,17 @@ const MAX_INPUT_PIXELS = 100_000_000;
  * foto de camara y una de movil, y por eso se puede poner un umbral.
  */
 const ANCHO_ANALISIS = 512;
+
+/**
+ * Ancho al que se miden las franjas muertas, y los dos umbrales que las
+ * definen. Van juntos porque solo significan algo juntos: cambiar el ancho sin
+ * mover el umbral cambia lo que se considera una franja.
+ */
+const ANCHO_FRANJAS = 256;
+/** Contraste medio por debajo del cual una linea se considera plana. */
+const UMBRAL_PLANO = 3;
+/** Hasta donde se deja avanzar la franja: mas del 45 % ya no es un borde. */
+const TOPE_FRANJA = 0.45;
 
 /** Rejilla del dHash: 9x8 pixeles dan los 64 bits de la huella. */
 const HASH_W = 9;
@@ -167,6 +179,74 @@ export class ImageGateService {
       brightFraction: redondear(claros / data.length, 4),
       perceptualHash: dHash(mini),
       checksum: createHash('sha256').update(buffer).digest('hex'),
+    };
+  }
+
+  /**
+   * Cuanto ocupa la franja muerta de cada borde.
+   *
+   * Una franja muerta —suelo vacio, techo liso, pared en blanco, el canto de
+   * una puerta— es una banda pegada al borde donde no pasa nada: apenas hay
+   * contraste de un pixel al de al lado. Se avanza desde el borde hacia dentro
+   * mientras las lineas sigan planas y se cuenta hasta donde llega.
+   *
+   * Existe porque el modelo de vision SI acierta que borde sobra y QUE hay
+   * ahi, pero no cuanto: medido sobre 23 fotos reales, cuando la zona muerta
+   * ocupaba el 40 % de la foto contestaba 10 o 15, siempre, y con `detail`
+   * en `high` contestaba exactamente lo mismo. El numero es de aqui; el juicio
+   * es suyo.
+   *
+   * Lo que esto NO sabe, y conviene tenerlo escrito: distingue lo LISO, no lo
+   * inutil. El cielo de una terraza sale liso y es justo lo que se vende, y el
+   * suelo de baldosa sale vivo por la junta aunque no aporte nada. Por eso solo
+   * se usa para CONFIRMAR un borde que el modelo ya ha señalado, nunca para
+   * elegirlo: las dos cosas juntas aciertan donde cada una sola se equivoca.
+   *
+   * `tope` corta en el 45 %: mas alla de eso ya no es recortar, es otra foto.
+   */
+  async deadBands(buffer: Buffer): Promise<DeadBands> {
+    const { data, info } = await sharp(buffer, {
+      limitInputPixels: MAX_INPUT_PIXELS,
+      pages: 1,
+    })
+      .greyscale()
+      .resize({ width: ANCHO_FRANJAS, fit: 'inside' })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const { width: w, height: h } = info;
+    if (!w || !h) return { arriba: 0, abajo: 0, izquierda: 0, derecha: 0 };
+
+    const filas = new Array<number>(h);
+    for (let y = 0; y < h; y++) {
+      let suma = 0;
+      for (let x = 1; x < w; x++)
+        suma += Math.abs(data[y * w + x] - data[y * w + x - 1]);
+      filas[y] = suma / Math.max(1, w - 1);
+    }
+    const columnas = new Array<number>(w);
+    for (let x = 0; x < w; x++) {
+      let suma = 0;
+      for (let y = 1; y < h; y++)
+        suma += Math.abs(data[y * w + x] - data[(y - 1) * w + x]);
+      columnas[x] = suma / Math.max(1, h - 1);
+    }
+
+    const desde = (v: number[], n: number) => {
+      let i = 0;
+      while (i < n * TOPE_FRANJA && v[i] < UMBRAL_PLANO) i++;
+      return Math.round((i / n) * 100);
+    };
+    const hasta = (v: number[], n: number) => {
+      let i = 0;
+      while (i < n * TOPE_FRANJA && v[n - 1 - i] < UMBRAL_PLANO) i++;
+      return Math.round((i / n) * 100);
+    };
+
+    return {
+      arriba: desde(filas, h),
+      abajo: hasta(filas, h),
+      izquierda: desde(columnas, w),
+      derecha: hasta(columnas, w),
     };
   }
 

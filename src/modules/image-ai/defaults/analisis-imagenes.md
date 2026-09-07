@@ -168,6 +168,59 @@ pero que sea porque has mirado, no por no molestar.
 - Las fotos de zonas comunes de un conjunto van despues de las del inmueble,
   nunca de portada, salvo que el inmueble no tenga fachada propia.
 
+
+## Que le sobra al encuadre
+
+De cada foto propon el recorte que la mejoraria. Es lo unico que se te pide del
+retoque, y es lo que ningun programa decide solo: hay que mirar la escena y ver
+que parte no cuenta nada. La luz y el color no los toques, que de eso ya se
+encarga el revelado antes de que tu veas la foto.
+
+Antes de recortar nada mira si la foto es de dentro o de fuera, porque no se
+recortan igual.
+
+**Dentro de una vivienda**, recorre los cuatro bordes preguntando que hay JUSTO
+ahi:
+
+- Arriba: techo liso, sin lampara ni moldura ni nada que mirar.
+- Abajo: suelo vacio, baldosa y nada mas. Es el borde que mas se pasa por alto.
+- A los lados: pared en blanco que no dice nada, o el canto de una puerta, de un
+  armario o de un muro que se ha colado y tapa el borde.
+
+**Fuera** —fachadas, patios, zonas comunes, piscinas, terrazas— esa lista no
+vale y copiarla es inventarse la foto: ahi no hay techo ni baldosa. Fuera lo que
+sobra es asfalto, una rama o un poste que se cuela por una esquina, o el carro
+aparcado delante. Y cuidado con el cielo: en una terraza o en una vista, el
+cielo y lo que se ve al fondo son justo lo que se vende, no un borde muerto.
+
+Por cada borde donde SI sobra algo, mete una entrada en `recorte` con el borde,
+la porcion y QUE es lo que hay ahi. Nombrar lo que hay es obligatorio y es el
+punto: si no puedes decir que hay en ese borde, no lo has mirado y esa entrada
+no va. Y tiene que estar de verdad en esa foto; si al releerlo no lo podrias
+señalar con el dedo, quitalo.
+
+La lista vacia es una respuesta correcta y frecuente. Una foto bien encuadrada
+no tiene nada que recortar. Y no recortes lo que se vende: un espejo, una
+ventana con vistas, la lampara o el mueble bonito son motivo para NO cortar por
+ese lado, aunque alrededor haya pared.
+
+`porcion` es el porcentaje del alto (arriba y abajo) o del ancho (izquierda y
+derecha) que sobra. Se honesto con el numero: si el suelo vacio llega hasta la
+mitad de la foto, di 40, no 10.
+
+Tres cosas que NO son recorte:
+
+- La marca de agua NUNCA es motivo de nada. No se recorta, no se quita y no se
+  repite la foto por ella. Es la marca del dueno de la foto y va donde va.
+- Lo que se arregla volviendo a la casa —desordenado, a oscuras, un mueble en
+  medio, el angulo malo— va en `fixes`. Recortar no ordena una casa.
+- Si de la foto te llega dicho que esta movida, oscura o por debajo del minimo,
+  esa foto no se salva recortandola: deja `recorte` vacio y di en `fixes` que
+  hay que repetirla.
+
+Y no propongas recorte sobre lo que no es una foto del inmueble: el logo sobre
+fondo liso, un plano o una captura van con `recorte` vacio.
+
 ## Formato de la respuesta
 
 Responde UNICAMENTE con un objeto JSON, sin texto alrededor y sin bloques de
@@ -185,6 +238,8 @@ codigo. Esta es la forma exacta:
       "caption": "Fachada del edificio desde la calle, con acceso peatonal",
       "issues": ["Hay un carro tapando la entrada"],
       "fixes": ["Repetirla sin el carro delante, o desde un poco mas a la izquierda"],
+      "encuadre": {"recorte": [{"borde": "ABAJO", "porcion": 30, "que": "suelo vacio, solo baldosa"},
+                               {"borde": "DERECHA", "porcion": 15, "que": "el canto de la puerta del armario"}]},
       "privacy": {"faces": false, "plates": true, "documents": false, "screens": false,
                   "address": false,
                   "notes": "Se lee la placa del carro de la derecha"},
@@ -232,6 +287,10 @@ Reglas del formato:
   y `address`. El que te dejes se da por `false`, asi que callarte uno es lo
   mismo que jurar que no hay nada: dilos los cinco. `notes` es la unica que
   puede ir a null.
+- `encuadre` va SIEMPRE en todas las imagenes y lleva dentro `recorte`, que es
+  una lista y puede ir vacia. Cada entrada lleva `borde` (ARRIBA, ABAJO,
+  IZQUIERDA o DERECHA), `porcion` entre 1 y 35, y `que`, en pocas palabras,
+  diciendo lo que hay en ese borde. Un borde no se repite.
 - `usable` es false solo si la foto no deberia publicarse tal cual.
 - `missing` mandalo vacio: lo rellena el sistema a partir de tus `room` y de lo
   que ese inmueble puede llegar a tener. Lo que escribas ahi se descarta.
