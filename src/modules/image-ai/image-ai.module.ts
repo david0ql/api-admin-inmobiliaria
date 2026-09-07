@@ -15,15 +15,9 @@ import { ImageRetouchService } from './image-retouch.service';
 import { SamplesService } from './samples.service';
 import { ImageAiController } from './image-ai.controller';
 /*
-  Aqui se importaba './retouch-panel.controller', un fichero que nunca llego al
-  repositorio: compilaba en el arbol de trabajo compartido, donde existe sin
-  commitear, y no en el commit. Con eso main estuvo tres commits sin compilar y
-  la API se cayo al desplegarlo.
-
-  Se retira la importacion, que es el cambio minimo que devuelve el repo a
-  verde sin tocar trabajo ajeno. Vuelve a entrar con su conjunto completo
-  —controlador, contrato, los estados y los tres metodos del servicio— cuando
-  su autor lo suba entero y verificado sobre el commit extraido en limpio.
+  Las rutas que consume el panel viven en su propio controlador: son la
+  superficie minima de UNA pantalla, con los nombres que esa pantalla ya tenia
+  escritos, y no los terminos del modulo entero.
 */
 
 /**
