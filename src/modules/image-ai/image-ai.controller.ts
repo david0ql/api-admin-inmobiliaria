@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseIntPipe,
+  Patch,
   ParseUUIDPipe,
   Post,
   Put,
@@ -28,6 +29,7 @@ import { SamplesService } from './samples.service';
 import {
   AnalyzePropertyDto,
   CreateSamplesDto,
+  ReviewPrivacyDto,
   SavePromptDto,
   UpdateGateRulesDto,
 } from './dto/image-ai.dto';
@@ -127,6 +129,20 @@ export class ImageAiController {
       imageIds: dto.imageIds,
       force: dto.force,
     });
+  }
+
+  @Patch('analyses/:id/privacy')
+  @ApiOperation({
+    summary: 'Marcar una alerta de datos personales como revisada',
+    description:
+      'Guarda quien la revisa y cuando, no solo el booleano: lo util dentro de seis meses no es que se descartara, es quien dijo que no era nada. El asesor sale del token. Reabrirla borra la firma, porque una marca reabierta esta sin revisar.',
+  })
+  reviewPrivacy(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReviewPrivacyDto,
+    @CurrentUser() actor: AuthenticatedActor,
+  ) {
+    return this.analysis.reviewPrivacy(id, dto.dismissed, actor);
   }
 
   // --- el prompt ------------------------------------------------------------

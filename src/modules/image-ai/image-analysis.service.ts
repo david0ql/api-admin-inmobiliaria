@@ -63,10 +63,25 @@ const IMPRESCINDIBLES_SUELO: readonly RoomKind[] = [
   RoomKind.EXTERIOR,
 ];
 
-/** Una fila de `image_analysis` a punto de escribirse: solo columnas. */
+/**
+ * Una fila de `image_analysis` a punto de escribirse: solo columnas.
+ *
+ * Quedan fuera las tres de la revision de privacidad, y no por comodidad: un
+ * analisis recien hecho NO puede traer la revision de nadie. Esas columnas las
+ * escribe una persona despues, por su propia ruta, y dejarlas aqui permitiria
+ * que un reanalisis arrastrara un "ya lo miro Ana" que Ana no ha dicho sobre
+ * esta respuesta. Por defecto la fila nace sin revisar, que es la verdad.
+ */
 type FilaAnalisis = Omit<
   ImageAnalysis,
-  'id' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'image'
+  | 'id'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'deletedAt'
+  | 'image'
+  | 'privacyDismissed'
+  | 'privacyReviewedAt'
+  | 'privacyReviewedByAgentId'
 >;
 
 @Injectable()
@@ -301,6 +316,55 @@ export class ImageAnalysisService {
     );
 
     return { batchId, analyzed, skipped, album, usage: respuesta.usage };
+  }
+
+  /**
+   * Un asesor dice si la marca de datos personales es real o no lo es.
+   *
+   * Se guarda QUIEN y CUANDO, no solo el booleano. Lo valioso no es el
+   * descarte: es poder contestar dentro de seis meses a "¿quien dijo que esa
+   * cara no era nada?". Un descarte anonimo sobre una marca de riesgo legal es
+   * peor que no poder descartar, porque aparenta que alguien se hizo cargo.
+   *
+   * El asesor sale del token, nunca del cuerpo de la peticion: si viniera de
+   * fuera, cualquiera podria firmar la revision con el nombre de otro — y el
+   * nombre es justo lo unico que este registro aporta.
+   *
+   * Reabrir (`dismissed: false`) borra la firma en vez de conservarla. Una
+   * marca reabierta esta sin revisar, y dejar ahi el nombre de quien la cerro
+   * una vez haria creer que sigue habiendo alguien detras.
+   */
+  async reviewPrivacy(
+    analysisId: string,
+    dismissed: boolean,
+    actor: AuthenticatedActor,
+  ): Promise<ImageAnalysis> {
+    const fila = await this.analyses.findOne({ where: { id: analysisId } });
+    if (!fila) throw new NotFoundException('Analisis no encontrado');
+
+    // Las mismas comprobaciones de sede y propiedad que para analizar: quien no
+    // puede tocar el inmueble tampoco decide sobre sus datos personales.
+    await this.propertyForActor(fila.propertyId, actor);
+
+    await this.analyses.update(
+      { id: analysisId },
+      dismissed
+        ? {
+            privacyDismissed: true,
+            privacyReviewedAt: new Date(),
+            privacyReviewedByAgentId: actor.id,
+          }
+        : {
+            privacyDismissed: false,
+            privacyReviewedAt: null,
+            privacyReviewedByAgentId: null,
+          },
+    );
+
+    this.logger.log(
+      `${actor.id} ${dismissed ? 'descarta' : 'reabre'} la marca de datos personales de ${analysisId}`,
+    );
+    return (await this.analyses.findOne({ where: { id: analysisId } }))!;
   }
 
   // --- piezas ---------------------------------------------------------------

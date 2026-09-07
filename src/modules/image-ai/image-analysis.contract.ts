@@ -90,6 +90,10 @@ export const privacySchema = z
       documents: b('documents'),
       screens: b('screens'),
       address: b('address'),
+      // Un numero, no una bandera: se guarda para auditar y no decide nada.
+      framedPeople: Number.isFinite(Number(o.framedPeople))
+        ? Math.min(99, Math.max(0, Math.trunc(Number(o.framedPeople))))
+        : 0,
       notes: notes || null,
     };
   })
@@ -100,6 +104,7 @@ export const privacySchema = z
       documents: z.boolean(),
       screens: z.boolean(),
       address: z.boolean(),
+      framedPeople: z.number(),
       notes: z.string().nullable(),
     }),
   );

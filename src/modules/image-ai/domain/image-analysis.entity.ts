@@ -26,6 +26,21 @@ export interface PrivacyFlags {
    * pregunto.
    */
   address: boolean;
+  /**
+   * Cuantos portarretratos o fotos enmarcadas con personas se han contado.
+   *
+   * Se guarda pero NO decide nada: `faces` sigue siendo la bandera. Esta aqui
+   * porque `ia-prompt-lab` midio que obligar al modelo a escribir un numero le
+   * hace mirar mejor —el recall subio de 5/6 a 6/6 sobre 114 fotos reales— y
+   * porque un conteo permite auditar despues por que se marco una foto.
+   *
+   * La medicion no aguanta sola: la diferencia es UNA foto sobre una base de
+   * seis, del mismo tamaño que la variacion entre dos pasadas identicas. Se
+   * añade porque es gratis —va dentro del jsonb, sin columna ni migracion— y
+   * porque el coste de no marcar una cara en una pagina publica no es
+   * simetrico con el de marcar un globo de cumpleaños de mas.
+   */
+  framedPeople: number;
   notes: string | null;
 }
 
@@ -160,4 +175,36 @@ export class ImageAnalysis extends BaseEntity {
   @ApiPropertyOptional({ nullable: true })
   @Column({ name: 'created_by_agent_id', type: 'uuid', nullable: true })
   createdByAgentId: string | null;
+
+  // --- revision de la marca de datos personales --------------------------
+
+  /**
+   * Un asesor ha mirado la marca y dice que no es nada.
+   *
+   * Existe porque el modelo se equivoca: sobre 114 fotos reales marco como
+   * datos personales un cartel de "Feliz Cumpleaños" y un globo con forma de
+   * tres. Si esas marcas no se pudieran quitar se quedarian para siempre y el
+   * asesor acabaria ignorando el bloque entero — que es como se pierde una
+   * funcion que existe por un riesgo legal.
+   */
+  @ApiProperty({ description: 'Un asesor la reviso y dijo que no es nada' })
+  @Column({ name: 'privacy_dismissed', type: 'boolean', default: false })
+  privacyDismissed: boolean;
+
+  /**
+   * Cuando y quien. Van con el booleano y no aparte: lo valioso no es el
+   * descarte, es poder contestar seis meses despues a "¿quien dijo que esa cara
+   * no era nada?". Un booleano suelto no contesta eso.
+   */
+  @ApiPropertyOptional({ nullable: true })
+  @Column({ name: 'privacy_reviewed_at', type: 'timestamptz', nullable: true })
+  privacyReviewedAt: Date | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @Column({
+    name: 'privacy_reviewed_by_agent_id',
+    type: 'uuid',
+    nullable: true,
+  })
+  privacyReviewedByAgentId: string | null;
 }

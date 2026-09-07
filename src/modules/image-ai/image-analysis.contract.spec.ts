@@ -72,6 +72,7 @@ describe('parseAnalysisResponse', () => {
       documents: false,
       screens: false,
       address: false,
+      framedPeople: 0,
       notes: null,
     });
   });
@@ -80,6 +81,38 @@ describe('parseAnalysisResponse', () => {
     const r = parseAnalysisResponse(JSON.stringify({ images: [imagenMinima] }));
     expect(r.images[0].privacy.faces).toBe(false);
     expect(r.images[0].usable).toBe(true);
+  });
+
+  /*
+    `framedPeople` se anadio DESPUES de que hubiera prompts en produccion. Que
+    un prompt que no lo conoce siga funcionando es la prueba de que el arreglo
+    del validador sirvio para algo: antes, cada campo nuevo rompia todo prompt
+    anterior.
+  */
+  it('un prompt que no conoce framedPeople sigue valiendo', () => {
+    const r = parseAnalysisResponse(
+      JSON.stringify({
+        images: [
+          { ...imagenMinima, privacy: { faces: true, notes: 'un retrato' } },
+        ],
+      }),
+    );
+    expect(r.images[0].privacy.framedPeople).toBe(0);
+    expect(r.images[0].privacy.faces).toBe(true);
+  });
+
+  it('recorta el conteo de retratos a algo creible', () => {
+    const conteo = (v: unknown) =>
+      parseAnalysisResponse(
+        JSON.stringify({
+          images: [{ ...imagenMinima, privacy: { framedPeople: v } }],
+        }),
+      ).images[0].privacy.framedPeople;
+    expect(conteo(3)).toBe(3);
+    expect(conteo(2.7)).toBe(2);
+    expect(conteo(-5)).toBe(0);
+    expect(conteo(1000)).toBe(99);
+    expect(conteo('tres')).toBe(0);
   });
 
   it('normaliza una estancia que no existe en vez de fallar', () => {

@@ -63,6 +63,19 @@ export class UpdateGateRulesDto {
   rules: Record<string, number | boolean | null>;
 }
 
+export class ReviewPrivacyDto {
+  /**
+   * `true` = "lo he mirado y no es nada". `false` reabre la marca.
+   *
+   * No lleva ningun campo para decir QUIEN lo revisa: ese sale del token. Si
+   * viniera en el cuerpo, cualquiera podria firmar la revision con el nombre de
+   * otro — y el nombre es lo unico que este registro aporta de verdad.
+   */
+  @ApiProperty({ description: 'true si la marca no es un dato personal real' })
+  @IsBoolean()
+  dismissed: boolean;
+}
+
 export class CreateSamplesDto {
   @ApiPropertyOptional({ default: 3, minimum: 1, maximum: 5 })
   @IsOptional()
