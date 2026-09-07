@@ -56,10 +56,17 @@ describe('el contexto que se le manda al modelo', () => {
       franjas: { arriba: 0, abajo: 0, izquierda: 0, derecha: 0 },
     }) as never;
 
-  // `linea` no toca estado del servicio: se puede instanciar sin dependencias.
-  const servicio = new ImageAnalysisService(
-    ...(Array(8).fill(null) as []),
-  ) as unknown as {
+  /*
+    `linea` no toca estado del servicio, asi que se prueba sobre el prototipo
+    en vez de construirlo.
+
+    Antes se llamaba al constructor con `Array(8).fill(null)`, y eso ataba la
+    prueba al NUMERO de dependencias del servicio: al añadirle dos, este
+    fichero dejo de compilar sin que nada de lo que prueba hubiera cambiado.
+    `Object.create` no depende de la firma, asi que la proxima dependencia que
+    se añada no rompe una prueba que no habla de dependencias.
+  */
+  const servicio = Object.create(ImageAnalysisService.prototype) as unknown as {
     linea: (i: number, c: never, r: typeof DEFAULT_INVENTORY_RULES) => string;
   };
   const linea = (c: never) => servicio.linea(0, c, DEFAULT_INVENTORY_RULES);

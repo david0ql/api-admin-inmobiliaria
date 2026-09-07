@@ -50,6 +50,23 @@ import { RoomKind } from './domain/image-analysis.enums';
 const VARIANTE = '-m.webp';
 
 /**
+ * Y sobre cual se miden las franjas del encuadre: la de 1600 px SIN revelar.
+ *
+ * No es la misma que ve el modelo, y es a proposito. El revelado se aplica en
+ * el paso de 2560 px y de ahi lo heredan las demas, asi que el `-m.webp` lleva
+ * niveles y balance puestos y su contraste sube hasta un 20 %. Los umbrales de
+ * "franja plana" estan calibrados contra pixeles, de modo que medir sobre una
+ * variante revelada los ata al revelado: hoy las 6.306 antiguas todavia no
+ * estan reveladas, y el dia que se lance el backfill se moverian de golpe sin
+ * que nadie hubiera tocado nada.
+ *
+ * El "sin revelar" sale del negativo y no cambia nunca. La geometria es la
+ * misma —el revelado no recorta ni endereza—, que es lo unico que importa para
+ * decir por que borde sobra algo.
+ */
+const VARIANTE_FRANJAS = '-rl.webp';
+
+/**
  * Lo que un comprador espera ver de una vivienda antes de llamar.
  *
  * No es "todas las estancias": es la lista corta de las que, si faltan, cuestan
@@ -639,7 +656,9 @@ export class ImageAnalysisService {
 
       let franjas = { arriba: 0, abajo: 0, izquierda: 0, derecha: 0 };
       try {
-        franjas = await this.gate.deadBands(buffer);
+        franjas = await this.gate.deadBands(
+          await this.paraFranjas(image.storageKey, buffer),
+        );
       } catch {
         // Sin franjas no se confirma ningun recorte, que es el lado seguro:
         // las propuestas quedan para que las mire una persona.
@@ -649,6 +668,32 @@ export class ImageAnalysisService {
       salida.push({ image, buffer, metricas, franjas });
     }
     return salida;
+  }
+
+  /**
+   * El fichero sobre el que medir las franjas: el "sin revelar" si existe.
+   *
+   * Puede no existir: se genera la primera vez que una foto se revela o se
+   * rerevela, y las 6.306 antiguas aun no han pasado por ahi. Mientras tanto se
+   * mide sobre la copia que se le manda al modelo, que hoy tampoco esta
+   * revelada — asi que el numero es el mismo. Cuando el backfill pase, cada
+   * foto empezara a medirse sobre su "sin revelar" y los umbrales se quedan
+   * donde estan, que es justo lo que se busca.
+   */
+  private async paraFranjas(
+    storageKey: string,
+    respaldo: Buffer,
+  ): Promise<Buffer> {
+    try {
+      return await readFile(
+        join(
+          this.storage.root,
+          storageKey.replace(/-o\.webp$/, VARIANTE_FRANJAS),
+        ),
+      );
+    } catch {
+      return respaldo;
+    }
   }
 
   /**
@@ -813,8 +858,15 @@ export class ImageAnalysisService {
           "muy apaisada" no.
         */
         metrics: {
-          width: cargada.metricas?.width ?? cargada.image.width,
-          height: cargada.metricas?.height ?? cargada.image.height,
+          /*
+            El tamaño sale de la FILA y no de lo medido: lo medido viene de
+            `-o.webp`, que el almacenamiento ya recorto a 2560 px de ancho, asi
+            que una foto subida a 4032 mediria 2560 y el panel enseñaria un
+            tamaño que no es el suyo. La nitidez y la exposicion, al reves, hay
+            que medirlas del fichero.
+          */
+          width: cargada.image.width ?? cargada.metricas?.width ?? 0,
+          height: cargada.image.height ?? cargada.metricas?.height ?? 0,
           bytes: cargada.image.bytes,
           aspectRatio: cargada.metricas?.aspectRatio ?? null,
           megapixels: cargada.metricas?.megapixels ?? null,
