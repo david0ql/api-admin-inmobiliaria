@@ -14,7 +14,17 @@ import { PropuestaService } from './propuesta.service';
 import { ImageRetouchService } from './image-retouch.service';
 import { SamplesService } from './samples.service';
 import { ImageAiController } from './image-ai.controller';
-import { RetouchPanelController } from './retouch-panel.controller';
+/*
+  Aqui se importaba './retouch-panel.controller', un fichero que nunca llego al
+  repositorio: compilaba en el arbol de trabajo compartido, donde existe sin
+  commitear, y no en el commit. Con eso main estuvo tres commits sin compilar y
+  la API se cayo al desplegarlo.
+
+  Se retira la importacion, que es el cambio minimo que devuelve el repo a
+  verde sin tocar trabajo ajeno. Vuelve a entrar con su conjunto completo
+  —controlador, contrato, los estados y los tres metodos del servicio— cuando
+  su autor lo suba entero y verificado sobre el commit extraido en limpio.
+*/
 
 /**
  * Calidad de las fotos de un inmueble: primero el codigo, luego la IA.
@@ -55,7 +65,7 @@ import { RetouchPanelController } from './retouch-panel.controller';
     ]),
     MediaModule,
   ],
-  controllers: [ImageAiController, RetouchPanelController],
+  controllers: [ImageAiController],
   providers: [
     ImagePromptService,
     ImageAnalysisService,
