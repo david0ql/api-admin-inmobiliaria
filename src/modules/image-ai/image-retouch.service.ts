@@ -26,6 +26,7 @@ import {
 } from './domain/image-retouch.enums';
 import {
   clasificarInstruccion,
+  COSTES_PUBLICADOS,
   encabezadoDocumental,
 } from './retouch-frontier';
 import { INSTRUCCION_POR_DEFECTO } from './dto/image-retouch.dto';
@@ -155,28 +156,28 @@ export class ImageRetouchService {
   get costes() {
     return {
       /*
-        Se llaman igual que en `/retouch/preview`, que es el otro sitio donde
-        salen. Un mismo numero con dos nombres segun el endpoint obliga a quien
-        pinta la pantalla a acordarse de cual toca, y ahi es donde se pierde:
-        el panel leia `costeAnalisisUsd` de aqui y aqui se publicaba
-        `analisisUsd`, asi que la frase con el multiplicador no se encendia
-        nunca y nadie veia un error — solo faltaba media frase.
+        Estos dos nombres estan CONGELADOS. No se tocan.
+
+        Se han cruzado ya dos veces con el panel y las dos el sintoma fue el
+        mismo: nada falla, no hay error en ningun log, y lo unico que pasa es
+        que la frase con el multiplicador deja de encenderse y el asesor ve un
+        importe sin nada que lo situe. Primero el panel leia `costeAnalisisUsd`
+        y aqui se publicaba `analisisUsd`; se renombro para que casara, y para
+        entonces el panel ya se habia adaptado a lo que servia produccion — de
+        modo que el renombrado, que era el arreglo, se convirtio en el
+        siguiente fallo.
+
+        Gana el nombre que hay desplegado y contra el que hay codigo publicado
+        funcionando. Que no case con el `costeOrientativoUsd` de
+        `/retouch/preview` es feo y se queda feo: la coherencia de vocabulario
+        no vale una tercera ronda de un fallo que no avisa.
       */
-      costeOrientativoUsd:
-        COSTE_ORIENTATIVO_USD[this.config.retouch.quality] ?? null,
-      costeAnalisisUsd: COSTE_ANALISIS_USD,
+      retoqueUsd: COSTE_ORIENTATIVO_USD[this.config.retouch.quality] ?? null,
+      analisisUsd: COSTE_ANALISIS_USD,
       moneda: 'USD',
-    };
+    } satisfies Record<(typeof COSTES_PUBLICADOS)[number], unknown>;
   }
 
-  /**
-   * Que pasaria si se pulsara, sin pulsar.
-   *
-   * Gratis y a proposito: la clasificacion es lexica y no llama a nadie. Es lo
-   * que permite que el panel enseñe la advertencia y el precio MIENTRAS el
-   * asesor escribe, en vez de despues de cobrarle. Una advertencia que llega
-   * despues del cobro no es una advertencia, es un recibo.
-   */
   previsualizar(instruccion: string) {
     const veredicto = clasificarInstruccion(instruccion);
     const { quality, model } = this.config.retouch;

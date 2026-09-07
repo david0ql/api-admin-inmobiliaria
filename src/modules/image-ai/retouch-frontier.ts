@@ -433,3 +433,16 @@ export function encabezadoDocumental(kind: RetouchKind): string {
 
   return comun.join(' ');
 }
+
+/**
+ * Los nombres de los campos de coste que publica `/image-ai/status`.
+ *
+ * Viven aqui —en un fichero sin dependencias— para que una prueba pueda
+ * vigilarlos sin levantar el modulo entero de Nest. Ver `retouch-costes.spec`:
+ * este contrato ya se rompio dos veces, siempre en silencio.
+ */
+export const COSTES_PUBLICADOS = [
+  'analisisUsd',
+  'moneda',
+  'retoqueUsd',
+] as const;
