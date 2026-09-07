@@ -114,15 +114,10 @@ tomas del mismo bano desde el mismo sitio — deja delante la mejor y manda las
 demas al final, y dilo en el `summary`. Repetir cansa y hace que el anuncio
 parezca mas pobre de lo que es.
 
-En `missing` pon las estancias que un comprador espera ver y no estan. Cocina y
-bano son las dos que mas se echan de menos: nadie compra sin verlas.
-
-`missing` se saca de tu propia lista, no de la impresion general. Repasa los
-`room` que acabas de asignar y pon en `missing` unicamente los que NO aparecen
-en ninguna imagen. Si has clasificado una foto como KITCHEN, KITCHEN no puede
-estar en `missing`; seria contradecirte. Mira solo estos seis: FACADE, LIVING,
-DINING, KITCHEN, BEDROOM, BATHROOM. Que no haya gimnasio ni plano no es algo
-que falte.
+De las estancias que faltan no te ocupes: `missing` lo calcula el sistema
+restando lo que tu has clasificado, y tiene en cuenta lo que ese inmueble puede
+tener (en un lote la cocina no falta, no existe). Clasifica bien y eso sale
+solo.
 
 ## issues y fixes
 
@@ -213,9 +208,12 @@ Reglas del formato:
   cortinas abiertas", no "mejorar la iluminacion".
 - `privacy` lleva SIEMPRE sus cinco booleanos, en todas y cada una de las
   imagenes, aunque sean todos false: `faces`, `plates`, `documents`, `screens`
-  y `address`. Si te dejas uno, la respuesta entera se descarta. `notes` es la
-  unica que puede ir a null.
+  y `address`. El que te dejes se da por `false`, asi que callarte uno es lo
+  mismo que jurar que no hay nada: dilos los cinco. `notes` es la unica que
+  puede ir a null.
 - `usable` es false solo si la foto no deberia publicarse tal cual.
+- `missing` mandalo vacio: lo rellena el sistema a partir de tus `room` y de lo
+  que ese inmueble puede llegar a tener. Lo que escribas ahi se descarta.
 - `suggestedOrder` contiene todos los indices, sin repetir ni saltarse ninguno.
 - `coverIndex` tiene que ser EXACTAMENTE el primer numero de `suggestedOrder`.
   Decide primero cual es la portada, ponla la primera del orden y copia ese
