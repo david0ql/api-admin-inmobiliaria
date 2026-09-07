@@ -273,7 +273,7 @@ export class StorageService {
       ? this.develop.plan(await this.develop.analizar(negativo, metrics))
       : null;
 
-    const bytes = await this.generarVariantes(base, negativo, revelado);
+    const { bytes } = await this.generarVariantes(base, negativo, revelado);
 
     return {
       key: originalKey,
@@ -315,7 +315,7 @@ export class StorageService {
       calidad: number;
     }[] = VARIANTES,
     caja: Caja | null = null,
-  ): Promise<number> {
+  ): Promise<{ bytes: number; width: number; height: number }> {
     /*
       El recorte se aplica ANTES que nada y una sola vez, sobre el negativo.
 
@@ -327,6 +327,7 @@ export class StorageService {
     let anterior = caja ? await recortar(negativo, caja) : negativo;
     let anchoPrevio = (await sharp(anterior).metadata()).width ?? ARCHIVE_WIDTH;
     let total = 0;
+    let medida = { width: 0, height: 0 };
 
     for (const [indice, variante] of variantes.entries()) {
       /*
@@ -340,6 +341,8 @@ export class StorageService {
       */
       if (indice === 0 && !revelado && !caja && anchoPrevio <= variante.ancho) {
         total += anterior.length;
+        const meta = await sharp(anterior).metadata();
+        medida = { width: meta.width ?? 0, height: meta.height ?? 0 };
         await this.escribirEntero(`${base}${variante.sufijo}`, anterior);
         continue;
       }
@@ -361,14 +364,26 @@ export class StorageService {
         !!revelado && anchoPrevio > variante.ancho,
       );
 
-      anterior = await pipe
+      /*
+        `resolveWithObject` da el tamaño REAL de lo que se acaba de escribir sin
+        volver a decodificarlo. Interesa el del primer paso —el archivo—, que es
+        lo que la fila tiene que declarar: calcularlo multiplicando la caja por
+        el tamaño de antes seria tener dos verdades sobre el mismo fichero, y
+        la de la fila seria la falsa, porque el recorte redondea a pixeles
+        enteros.
+      */
+      const salida = await pipe
         .webp({ quality: variante.calidad, effort: 3 })
-        .toBuffer();
+        .toBuffer({ resolveWithObject: true });
+      anterior = salida.data;
+      if (indice === 0) {
+        medida = { width: salida.info.width, height: salida.info.height };
+      }
       anchoPrevio = Math.min(anchoPrevio, variante.ancho);
       total += anterior.length;
       await this.escribirEntero(`${base}${variante.sufijo}`, anterior);
     }
-    return total;
+    return { bytes: total, ...medida };
   }
 
   /**
@@ -400,6 +415,17 @@ export class StorageService {
   ): Promise<{
     revelado: Revelado | null;
     bytes: number;
+    /**
+     * Tamaño real del archivo recien escrito.
+     *
+     * Hace falta porque regenerar puede cambiarlo: el 10 % de las fotos
+     * importadas tienen el archivo por encima de los 2560 px de hoy —hay
+     * alguna de 4032— y al pasar por aqui se ajustan a la regla vigente. Sin
+     * esto la fila seguiria declarando el tamaño viejo y el panel enseñaria
+     * unas medidas que no son las del fichero.
+     */
+    width: number;
+    height: number;
     urlRaw: string;
     urlRawLarge: string;
   }> {
@@ -415,7 +441,7 @@ export class StorageService {
       nadie espera de un recorte.
     */
     const revelado = decidir(await this.develop.analizar(negativo));
-    const bytes = await this.generarVariantes(
+    const { bytes, width, height } = await this.generarVariantes(
       base,
       negativo,
       revelado,
@@ -424,6 +450,8 @@ export class StorageService {
     );
     return {
       revelado,
+      width,
+      height,
       bytes: bytes + negativo.length + bytesSinRevelar,
       urlRaw: this.publicUrl(`${base}-rt.webp`),
       urlRawLarge: this.publicUrl(`${base}-rl.webp`),
@@ -450,7 +478,7 @@ export class StorageService {
   ): Promise<{ bytes: number; width: number; height: number }> {
     const base = storageKey.replace(/-o\.webp$/, '');
     const negativo = await this.leerNegativo(base);
-    const bytes = await this.generarVariantes(
+    const { bytes, width, height } = await this.generarVariantes(
       base,
       negativo,
       revelado,
@@ -463,24 +491,11 @@ export class StorageService {
     const bytesSinRevelar = await this.asegurarSinRevelar(base, negativo, caja);
 
     /*
-      Se devuelven las medidas del archivo recien escrito, y no las que salgan
-      de multiplicar la caja por las de antes.
-
-      Quien llama tiene que guardarlas en la fila: si no, la fila sigue
-      diciendo el tamaño de antes del recorte y el panel enseña unas medidas
-      que ya no son las del fichero. Y se leen del archivo porque el recorte
-      redondea a pixeles enteros — calcularlas aparte es tener dos verdades
-      sobre el mismo fichero, y la de la fila seria la falsa.
+      Quien llama tiene que guardar estas medidas en la fila: si no, la fila
+      sigue diciendo el tamaño de antes del recorte y el panel enseña unas
+      medidas que ya no son las del fichero.
     */
-    const meta = await sharp(
-      await readFile(join(this.root, `${base}-o.webp`)),
-    ).metadata();
-
-    return {
-      bytes: bytes + bytesSinRevelar,
-      width: meta.width ?? 0,
-      height: meta.height ?? 0,
-    };
+    return { bytes: bytes + bytesSinRevelar, width, height };
   }
 
   /**
@@ -504,13 +519,14 @@ export class StorageService {
     caja: Caja | null = null,
   ): Promise<number> {
     if (!caja && (await this.fileExists(`${base}-rt.webp`))) return 0;
-    return this.generarVariantes(
+    const { bytes } = await this.generarVariantes(
       base,
       negativo,
       null,
       VARIANTES_SIN_REVELAR,
       caja,
     );
+    return bytes;
   }
 
   /**

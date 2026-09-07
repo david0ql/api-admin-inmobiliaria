@@ -476,6 +476,29 @@ describe('StorageService: el negativo y el deshacer', () => {
     );
   });
 
+  /*
+    El 10 % de las fotos importadas tiene el archivo por encima de los 2560 px
+    de hoy —hay alguna de 4032—, asi que pasar por el revelado las ajusta a la
+    regla vigente y les cambia el tamaño. Si la fila no se entera, el panel
+    enseña unas medidas que no son las del fichero, y son justo las medidas que
+    hacen discutible una propuesta de recorte.
+  */
+  it('devuelve el tamano real del archivo cuando regenerar lo cambia', async () => {
+    const grande = await sharp({
+      create: { width: 3200, height: 2000, channels: 3, background: '#8a7f6d' },
+    })
+      .jpeg()
+      .toBuffer();
+    const guardada = await storage.saveImage(grande, 'pruebas');
+
+    const { width, height } = await storage.rerevelar(guardada.key, () => null);
+
+    expect(width).toBe(2560);
+    expect(height).toBe(1600);
+    const real = await sharp(join(raiz, guardada.key)).metadata();
+    expect([real.width, real.height]).toEqual([width, height]);
+  });
+
   it('marca la version en la URL para que la cache de un anio se entere', () => {
     const marcada = StorageService.marcarVersion('/media/x/y-l.webp');
     expect(marcada).toMatch(/^\/media\/x\/y-l\.webp\?r=/);

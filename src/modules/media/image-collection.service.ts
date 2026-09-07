@@ -377,7 +377,7 @@ export class ImageCollectionService {
     aplicar: boolean,
   ): Promise<T> {
     const imagen = await this.propia(coleccion, imageId);
-    const { revelado, bytes, urlRaw, urlRawLarge } =
+    const { revelado, bytes, width, height, urlRaw, urlRawLarge } =
       await this.storage.rerevelar(
         imagen.storageKey,
         (analisis) => (aplicar ? this.develop.plan(analisis) : null),
@@ -390,6 +390,15 @@ export class ImageCollectionService {
     imagen.developedAt = new Date();
     imagen.develop = revelado;
     imagen.bytes = bytes;
+    /*
+      El tamaño se reescribe porque regenerar puede cambiarlo: el 10 % de las
+      fotos importadas tienen el archivo por encima de los 2560 px de hoy —hay
+      alguna de 4032— y al pasar por aqui se ajustan a la regla vigente. Sin
+      esto la fila declararia el tamaño viejo y el panel enseñaria unas medidas
+      que no son las del fichero.
+    */
+    imagen.width = width;
+    imagen.height = height;
     // El "antes" no se reversiona: sale del negativo, que no cambia nunca.
     imagen.urlRaw = urlRaw;
     imagen.urlRawLarge = urlRawLarge;

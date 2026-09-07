@@ -177,7 +177,7 @@ async function main() {
                 if (!existsSync(join(raiz, imagen.storageKey))) {
                   throw new Error('falta el archivo');
                 }
-                const { revelado, bytes, urlRaw, urlRawLarge } =
+                const { revelado, bytes, width, height, urlRaw, urlRawLarge } =
                   await storage.rerevelar(
                     imagen.storageKey,
                     (analisis) => (REVERTIR ? null : develop.plan(analisis)),
@@ -193,6 +193,11 @@ async function main() {
                     developedAt: new Date(),
                     develop: revelado,
                     bytes,
+                    // El archivo se ajusta a los 2560 px de hoy, y el 10 % de
+                    // lo importado estaba por encima. La fila tiene que decir
+                    // el tamaño que tiene el fichero, no el que tenia.
+                    width,
+                    height,
                     urlRaw,
                     urlRawLarge,
                     // Sin marca de version el navegador y el proxy siguen
