@@ -153,6 +153,23 @@ export class ImageAiController {
     return this.retouch.listarPorImagen(id, actor);
   }
 
+  /*
+    Todo el personal menos el VIEWER.
+
+    Estas rutas no tenian ningun `@Roles` mientras el resto del modulo si los
+    tenia, asi que un usuario de solo lectura podia gastarse 25 centavos por
+    pulsacion y cambiar la foto de un anuncio. No se cerro mas de lo que estaba
+    abierto —la lista es todo el que ya podia entrar hoy— porque quitarle esto
+    a un rol que lo usa se descubre en produccion, y de la peor manera: con la
+    foto ya pagada.
+  */
+  @Roles(
+    Role.ADMIN,
+    Role.DIRECTOR,
+    Role.COORDINATOR,
+    Role.MANAGER,
+    Role.AGENT,
+  )
   @Post('images/:id/retouch')
   @ApiOperation({
     summary: 'Retocar UNA foto con IA',
@@ -167,6 +184,13 @@ export class ImageAiController {
     return this.retouch.retocar(id, dto, actor);
   }
 
+  @Roles(
+    Role.ADMIN,
+    Role.DIRECTOR,
+    Role.COORDINATOR,
+    Role.MANAGER,
+    Role.AGENT,
+  )
   @Post('retouches/:id/apply')
   @ApiOperation({
     summary: 'Aceptar un retoque: pasa a ser la foto del anuncio',
@@ -180,6 +204,13 @@ export class ImageAiController {
     return this.retouch.aplicar(id, actor);
   }
 
+  @Roles(
+    Role.ADMIN,
+    Role.DIRECTOR,
+    Role.COORDINATOR,
+    Role.MANAGER,
+    Role.AGENT,
+  )
   @Post('retouches/:id/discard')
   @ApiOperation({
     summary: 'Descartar un retoque',
@@ -193,6 +224,13 @@ export class ImageAiController {
     return this.retouch.descartar(id, actor);
   }
 
+  @Roles(
+    Role.ADMIN,
+    Role.DIRECTOR,
+    Role.COORDINATOR,
+    Role.MANAGER,
+    Role.AGENT,
+  )
   @Post('retouches/:id/revert')
   @ApiOperation({
     summary: 'Volver a la foto real',
@@ -233,6 +271,13 @@ export class ImageAiController {
     return this.analysis.findForProperty(id, actor);
   }
 
+  @Roles(
+    Role.ADMIN,
+    Role.DIRECTOR,
+    Role.COORDINATOR,
+    Role.MANAGER,
+    Role.AGENT,
+  )
   @Post('properties/:id/analyze')
   @ApiOperation({
     summary: 'Analizar las fotos de un inmueble',
@@ -250,6 +295,13 @@ export class ImageAiController {
     });
   }
 
+  @Roles(
+    Role.ADMIN,
+    Role.DIRECTOR,
+    Role.COORDINATOR,
+    Role.MANAGER,
+    Role.AGENT,
+  )
   @Patch('analyses/:id/privacy')
   @ApiOperation({
     summary: 'Marcar una alerta de datos personales como revisada',
@@ -279,6 +331,13 @@ export class ImageAiController {
     return this.propuestas.porInmueble(id, actor);
   }
 
+  @Roles(
+    Role.ADMIN,
+    Role.DIRECTOR,
+    Role.COORDINATOR,
+    Role.MANAGER,
+    Role.AGENT,
+  )
   @Post('propuesta/properties/:id')
   @ApiOperation({
     summary: 'Analizar y devolver la propuesta',
@@ -296,6 +355,13 @@ export class ImageAiController {
     });
   }
 
+  @Roles(
+    Role.ADMIN,
+    Role.DIRECTOR,
+    Role.COORDINATOR,
+    Role.MANAGER,
+    Role.AGENT,
+  )
   @Post('images/:id/crop')
   @ApiOperation({
     summary: 'Recortar una foto con los cortes que alguien ha aceptado',

@@ -3,6 +3,10 @@ import {
   encabezadoDocumental,
 } from './retouch-frontier';
 import { RetouchKind } from './domain/image-retouch.enums';
+import {
+  componerInstruccion,
+  INSTRUCCION_POR_DEFECTO,
+} from './dto/image-retouch.dto';
 
 /**
  * La frontera entre revelar y falsear, vigilada.
@@ -167,5 +171,57 @@ describe('encabezadoDocumental', () => {
     for (const kind of Object.values(RetouchKind)) {
       expect(encabezadoDocumental(kind)).toContain('visitar');
     }
+  });
+});
+
+/*
+  La mejora que se manda en TODAS las fotos.
+
+  Vive aqui, con la frontera, y no en un fichero de la mejora, porque lo que
+  hay que vigilar no es como esta redactada: es de que lado de la linea cae.
+  Es un texto que alguien va a afinar —para eso se escribio— y la forma de que
+  ese afinado no convierta el boton de siempre en una alteracion silenciosa es
+  que la propia frontera lo diga.
+*/
+describe('la mejora por defecto', () => {
+  it('es un revelado y no pide confirmacion a nadie', () => {
+    const veredicto = clasificarInstruccion(INSTRUCCION_POR_DEFECTO);
+    expect(veredicto.kind).toBe(RetouchKind.REVELADO);
+    expect(veredicto.advertencia).toBeNull();
+  });
+
+  it('sigue siendo un revelado con un comentario que tambien lo es', () => {
+    const veredicto = clasificarInstruccion(
+      componerInstruccion('esta alcoba salio muy oscura'),
+    );
+    expect(veredicto.kind).toBe(RetouchKind.REVELADO);
+  });
+
+  /*
+    Lo que de verdad se comprueba aqui: que la base no ABSUELVE al comentario.
+
+    La base esta llena de palabras de revelado, y la frontera tiene una rama
+    que absuelve los verbos de quitar cuando hay revelado alrededor. Si el
+    comentario se juzgara con la base pegada delante sin mas cuidado, "quita
+    los carros" pasaria a revelado por arrastre y la foto saldria alterada sin
+    que nadie marcara nada. Manda la gravedad, no el volumen de texto.
+  */
+  it('un comentario que altera la escena manda sobre la base', () => {
+    const veredicto = clasificarInstruccion(
+      componerInstruccion('quita los carros de la entrada'),
+    );
+    expect(veredicto.kind).toBe(RetouchKind.ALTERACION);
+  });
+
+  it('un comentario que tapa un defecto manda sobre todo lo demas', () => {
+    const veredicto = clasificarInstruccion(
+      componerInstruccion('borra la humedad del techo'),
+    );
+    expect(veredicto.kind).toBe(RetouchKind.OCULTA_DEFECTO);
+  });
+
+  it('sin comentario, componer devuelve exactamente la base', () => {
+    expect(componerInstruccion()).toBe(INSTRUCCION_POR_DEFECTO);
+    expect(componerInstruccion('   ')).toBe(INSTRUCCION_POR_DEFECTO);
   });
 });

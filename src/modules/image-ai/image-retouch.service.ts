@@ -29,7 +29,10 @@ import {
   COSTES_PUBLICADOS,
   encabezadoDocumental,
 } from './retouch-frontier';
-import { INSTRUCCION_POR_DEFECTO } from './dto/image-retouch.dto';
+import {
+  componerInstruccion,
+  INSTRUCCION_POR_DEFECTO,
+} from './dto/image-retouch.dto';
 import type { RetouchDto } from './dto/image-retouch.dto';
 
 /**
@@ -178,10 +181,21 @@ export class ImageRetouchService {
     } satisfies Record<(typeof COSTES_PUBLICADOS)[number], unknown>;
   }
 
-  previsualizar(instruccion: string) {
+  previsualizar(comentario?: string) {
+    const instruccion = componerInstruccion(comentario);
     const veredicto = clasificarInstruccion(instruccion);
     const { quality, model } = this.config.retouch;
     return {
+      /*
+        El texto entero, para que el panel lo enseñe en vez de describirlo.
+
+        Es la unica forma de que "¿que le va a hacer a mi foto?" tenga una
+        respuesta comprobable: lo que se ve en pantalla es literalmente lo que
+        se va a enviar, no un resumen escrito aparte que puede quedarse viejo.
+      */
+      instruccion,
+      /** La base sola, para poder distinguir en pantalla lo de siempre de lo de hoy. */
+      mejoraPorDefecto: INSTRUCCION_POR_DEFECTO,
       kind: veredicto.kind,
       kindLabel: RETOUCH_KIND_LABEL[veredicto.kind],
       motivos: veredicto.motivos,
@@ -279,12 +293,15 @@ export class ImageRetouchService {
     });
 
     /*
-      Sin instruccion se hace el revelado conservador. Es lo que manda el panel
-      cuando el asesor solo pulsa "retocar", y tiene que ser el subconjunto
-      seguro: un valor por defecto capaz de cambiar la escena convertiria ese
-      boton en una alteracion que nadie pidio.
+      La mejora de siempre, mas lo que se haya escrito para esta foto.
+
+      Lo que llega en `instruction` ya no es la peticion entera: es el añadido.
+      El revelado completo se pide en las 6.306 fotos por igual y no depende de
+      que alguien acierte a redactarlo, que era el reparto anterior — y el que
+      hacia que la foto de un asesor con prisa saliera peor revelada que la de
+      otro por un motivo que no tiene nada que ver con la foto.
     */
-    const instruccion = (dto.instruction ?? INSTRUCCION_POR_DEFECTO).trim();
+    const instruccion = componerInstruccion(dto.instruction);
 
     const veredicto = clasificarInstruccion(instruccion);
 
