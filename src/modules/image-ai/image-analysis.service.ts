@@ -31,17 +31,6 @@ import type {
 import { RoomKind } from './domain/image-analysis.enums';
 
 /**
- * Cuantas fotos caben en una llamada.
- *
- * Es un limite de dinero, no de tecnica. Cada imagen se paga, y un asesor que
- * pulse "analizar" en un inmueble con cuarenta fotos no puede lanzar cuarenta
- * cobros de golpe sin haberlo pedido. Veinte cubre el 99 % de los inmuebles del
- * inventario de una sola vez; los pocos que tienen mas se piden en dos tandas,
- * conscientemente.
- */
-const MAX_POR_LOTE = 20;
-
-/**
  * Que variante del fichero se le manda al modelo.
  *
  * La de 800 px, no la de 2560. El modelo trocea la imagen en cuadros y cobra
@@ -102,6 +91,22 @@ export class ImageAnalysisService {
   /** Si hay clave y esta encendido. Lo consulta el controller para dar 503. */
   get available(): boolean {
     return this.config.imageAi.enabled;
+  }
+
+  /**
+   * Cuantas fotos entran en una llamada.
+   *
+   * Es un limite de DINERO, no de tecnica: cada imagen se paga, y pulsar
+   * "analizar" en un inmueble de cuarenta fotos no puede lanzar cuarenta cobros
+   * sin que nadie lo haya decidido. Veinte cubre casi todo el inventario de una
+   * vez; lo que pase de ahi se pide en dos tandas, conscientemente.
+   *
+   * Se expone para que el panel lo pinte en el boton en lugar de escribirlo a
+   * mano. La cifra vive en un solo sitio —`IMAGE_AI_MAX_IMAGES`— y de ahi la
+   * leen los dos: el que cobra y el que promete.
+   */
+  get maxImages(): number {
+    return this.config.imageAi.maxImages;
   }
 
   /**
@@ -557,10 +562,5 @@ export class ImageAnalysisService {
     if (hay.has(RoomKind.EXTERIOR)) hay.add(RoomKind.FACADE);
 
     return esperadas.filter((r) => !hay.has(r));
-  }
-
-  /** El techo por lote, para que el panel lo pueda enseñar antes de pulsar. */
-  static get maxPorLote(): number {
-    return MAX_POR_LOTE;
   }
 }

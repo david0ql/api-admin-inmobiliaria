@@ -69,6 +69,17 @@ export class ImageAiController {
     return {
       enabled: this.analysis.available,
       promptVersion: prompt.version,
+      /*
+        El techo de fotos por lote, para que el boton del panel prometa las que
+        de verdad se van a analizar.
+
+        Sale de aqui y no de una constante en el panel porque `IMAGE_AI_MAX_IMAGES`
+        se configura entre 1 y 40: el dia que alguien lo baje a 10 para contener
+        el gasto, un panel con el 20 escrito a mano diria "analizar 20 fotos" y
+        se analizarian 10. Un numero que decide lo que se cobra no puede vivir
+        en dos sitios, porque el dia que dejen de coincidir nada avisa.
+      */
+      maxImages: this.analysis.maxImages,
       // La clave NO sale de aqui ni en parte. Lo unico que se dice es si hay.
       rooms: Object.values(RoomKind).map((value) => ({
         value,
