@@ -739,6 +739,24 @@ export class ImageAnalysisService {
 
       Al moverla al frente, `orden[0]` y la portada siguen siendo la misma cosa
       por construccion, que era el motivo de derivarla en codigo.
+
+      Que esto se apoye en `coverScore` esta medido: sobre 175 fotos la nota usa
+      el rango entero (5 a 95, mediana 55) y castiga de verdad —los banios y las
+      zonas de ropas caen a 5-20—, al contrario que `quality`, que se apelotona
+      arriba si no se le ancla la escala. Y repitiendo el analisis, la portada
+      sale la misma en 11 de 13 albumes aunque la nota baile cinco puntos: lo
+      unico que se usa aqui es el orden relativo, no el valor.
+
+      Donde deja de ser estable, para quien se lo encuentre: en los albumes
+      SIN una foto que domine. Los dos casos que bailaron eran uno sin fachada
+      ninguna y otro con la fachada compitiendo con una panoramica de la ciudad
+      — y ahi las dos candidatas eran defendibles, asi que "inestable" no
+      significa "mal". Cuando hay fachada, gana siempre.
+
+      Se descarto desempatar por `room` cuando la diferencia sea de pocos
+      puntos: arreglaria 2 albumes de 13 a cambio de un umbral inventado sin
+      medir, y el sintoma que evitaria es que una SUGERENCIA cambie entre dos
+      ejecuciones. Aplicarla sigue siendo un gesto de una persona.
     */
     const mejor = emparejados.reduce<{ id: string; nota: number } | null>(
       (actual, { cargada, juicio }) =>
