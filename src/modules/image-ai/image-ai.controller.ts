@@ -24,6 +24,9 @@ import {
 import { ROOM_LABEL, RoomKind } from './domain/image-analysis.enums';
 import { GateSettingsService } from '../media/gate-settings.service';
 import { ImageAnalysisService } from './image-analysis.service';
+import { ImageRetouchService } from './image-retouch.service';
+import { RETOUCH_KIND_LABEL } from './domain/image-retouch.enums';
+import { RetouchDto, RetouchPreviewDto } from './dto/image-retouch.dto';
 import { huellaPrompt, ImagePromptService } from './image-prompt.service';
 import { SamplesService } from './samples.service';
 import {
@@ -56,6 +59,7 @@ export class ImageAiController {
     private readonly prompts: ImagePromptService,
     private readonly gate: GateSettingsService,
     private readonly samples: SamplesService,
+    private readonly retouch: ImageRetouchService,
   ) {}
 
   // --- estado ---------------------------------------------------------------
@@ -96,7 +100,113 @@ export class ImageAiController {
       })),
       gateCodes: Object.values(GateCode),
       severities: Object.values(GateSeverity),
+      /*
+        El retoque va aparte del analisis y con su propia bandera: son dos
+        gastos de distinto orden y la agencia puede querer uno sin el otro.
+        Apagado, el panel esconde el boton en vez de dejar pulsar y dar 503.
+      */
+      retouch: {
+        enabled: this.retouch.available,
+        kinds: Object.entries(RETOUCH_KIND_LABEL).map(([value, label]) => ({
+          value,
+          label,
+        })),
+      },
     };
+  }
+
+  // --- retoque con IA -------------------------------------------------------
+  //
+  // Nada de aqui es publico y nada de aqui es automatico. Una foto, una
+  // pulsacion, una persona. Y lo que sale NO sustituye a la foto del anuncio
+  // hasta que alguien lo mira y lo acepta.
+
+  @Post('retouch/preview')
+  @ApiOperation({
+    summary: 'Que haria esta instruccion, sin hacerla',
+    description:
+      'No llama al modelo y no cuesta nada: clasifica el texto y devuelve si es un revelado o una alteracion de la realidad, la advertencia que hay que enseñar y el coste orientativo. Existe para que el aviso llegue MIENTRAS se escribe y no despues de cobrar.',
+  })
+  previewRetouch(@Body() dto: RetouchPreviewDto) {
+    return this.retouch.previsualizar(dto.instruction);
+  }
+
+  @Get('images/:id/retouches')
+  @ApiOperation({
+    summary: 'Los retoques de una foto',
+    description:
+      'Incluye los descartados y los fallidos: cada intento se pago, y una lista que solo enseña los aciertos no sirve para saber lo que cuesta la funcion.',
+  })
+  listRetouches(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() actor: AuthenticatedActor,
+  ) {
+    return this.retouch.listarPorImagen(id, actor);
+  }
+
+  @Post('images/:id/retouch')
+  @ApiOperation({
+    summary: 'Retocar UNA foto con IA',
+    description:
+      'Llama al modelo y se cobra (entre 5 y 18 centavos de dolar por foto, unas cien veces el analisis). Deja el resultado PENDIENTE: la foto del anuncio NO cambia hasta que alguien la mire y la acepte. Si la instruccion altera la escena en vez de revelarla, hace falta confirmarlo con `alteracionAsumida`.',
+  })
+  createRetouch(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RetouchDto,
+    @CurrentUser() actor: AuthenticatedActor,
+  ) {
+    return this.retouch.retocar(id, dto, actor);
+  }
+
+  @Post('retouches/:id/apply')
+  @ApiOperation({
+    summary: 'Aceptar un retoque: pasa a ser la foto del anuncio',
+    description:
+      'Cambia las urls de la foto y la deja MARCADA como retocada con IA, apuntando a esta fila. El original no se borra: se guarda entero para poder volver.',
+  })
+  applyRetouch(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() actor: AuthenticatedActor,
+  ) {
+    return this.retouch.aplicar(id, actor);
+  }
+
+  @Post('retouches/:id/discard')
+  @ApiOperation({
+    summary: 'Descartar un retoque',
+    description:
+      'Borra los ficheros del candidato, que no los ha visto nadie. La fila se queda con lo que se pidio y lo que costo.',
+  })
+  discardRetouch(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() actor: AuthenticatedActor,
+  ) {
+    return this.retouch.descartar(id, actor);
+  }
+
+  @Post('retouches/:id/revert')
+  @ApiOperation({
+    summary: 'Volver a la foto real',
+    description:
+      'Devuelve el original al anuncio y quita la marca. No cuesta nada: los ficheros nunca se fueron.',
+  })
+  revertRetouch(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() actor: AuthenticatedActor,
+  ) {
+    return this.retouch.revertir(id, actor);
+  }
+
+  @Get('properties/:id/retouch-summary')
+  @ApiOperation({
+    summary:
+      'Cuanto se ha gastado en retocar un inmueble y cuantas fotos ya no son fotos',
+  })
+  retouchSummary(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() actor: AuthenticatedActor,
+  ) {
+    return this.retouch.resumenPorInmueble(id, actor);
   }
 
   // --- analisis -------------------------------------------------------------

@@ -16,6 +16,11 @@ import type {
   VisionRequest,
   VisionResponse,
 } from './vision-provider';
+import type {
+  ImageEditProvider,
+  ImageEditRequest,
+  ImageEditResponse,
+} from './image-edit-provider';
 
 /**
  * Proveedor OpenAI sobre `fetch`.
@@ -29,7 +34,9 @@ import type {
  * puertas locales): solo cambia `CHAT_BASE_URL`.
  */
 @Injectable()
-export class OpenAiProvider implements ChatProvider, VisionProvider {
+export class OpenAiProvider
+  implements ChatProvider, VisionProvider, ImageEditProvider
+{
   private readonly logger = new Logger(OpenAiProvider.name);
 
   constructor(private readonly config: AppConfigService) {}
@@ -126,6 +133,104 @@ export class OpenAiProvider implements ChatProvider, VisionProvider {
         ? {
             inputTokens: json.usage.prompt_tokens ?? 0,
             outputTokens: json.usage.completion_tokens ?? 0,
+          }
+        : null,
+    };
+  }
+
+  /**
+   * Edita una imagen y devuelve otra.
+   *
+   * `/images/edits` y no `/chat/completions`: es el unico endpoint que acepta
+   * una foto y devuelve pixeles. El cuerpo va en `multipart/form-data` con
+   * `FormData` y `Blob` nativos —Node 20 los trae— para no añadir `form-data`
+   * ni el SDK por una sola llamada, que es la misma decision que ya se tomo
+   * para el resto de este fichero.
+   *
+   * El campo se llama `image[]` y no `image`: el endpoint acepta varias
+   * referencias y con el nombre en singular contesta 400.
+   *
+   * Sin `signal` propio ni tiempo de espera corto: una edicion real tarda entre
+   * 30 y 60 segundos —medido, 34 s en calidad media y mas en alta— y cortarla
+   * antes de tiempo es pagar la llamada y tirar el resultado. Quien llama pone
+   * el limite si lo quiere.
+   */
+  async editImage(request: ImageEditRequest): Promise<ImageEditResponse> {
+    const { apiKey, baseUrl } = this.config.chat;
+    if (!apiKey) {
+      throw new ServiceUnavailableException(
+        'El retoque de imagenes no esta configurado: falta la clave del proveedor',
+      );
+    }
+
+    const form = new FormData();
+    form.append('model', request.model);
+    form.append(
+      'image[]',
+      new Blob([new Uint8Array(request.image)], { type: request.mimeType }),
+      `original.${extensionDe(request.mimeType)}`,
+    );
+    form.append('prompt', request.prompt);
+    form.append('size', request.size);
+    form.append('quality', request.quality);
+    // PNG y no WebP: es sin perdida, y esta imagen todavia tiene por delante el
+    // reencodeo de `StorageService` a los cuatro tamaños. Comprimir con perdida
+    // dos veces seguidas se nota justo en lo que se acaba de pagar por mejorar.
+    form.append('output_format', 'png');
+
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}/images/edits`, {
+        method: 'POST',
+        // Sin `Content-Type` a mano: lo pone `FormData` con su `boundary`, y
+        // escribirlo aqui lo rompe.
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+        signal: request.signal,
+      });
+    } catch (error) {
+      this.logger.error(
+        `No se pudo contactar al proveedor: ${errorMessage(error)}`,
+      );
+      throw new ServiceUnavailableException(
+        'El retoque de imagenes no esta disponible ahora mismo',
+      );
+    }
+
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      this.logger.error(
+        `Proveedor respondio ${res.status} al editar: ${detail.slice(0, 500)}`,
+      );
+      // El motivo del rechazo si sube: a diferencia del analisis, aqui el 400
+      // suele ser culpa de lo que escribio el asesor —una peticion que el
+      // proveedor no acepta— y sin decirselo volveria a pulsar igual.
+      throw new ServiceUnavailableException(
+        res.status === 400
+          ? 'El proveedor rechazo la peticion de retoque. Revisa la instruccion.'
+          : 'El retoque de imagenes no esta disponible ahora mismo',
+      );
+    }
+
+    const json = (await res.json()) as OpenAiImageEdit;
+    const b64 = json.data?.[0]?.b64_json;
+    if (!b64) {
+      this.logger.error('El proveedor no devolvio imagen');
+      throw new ServiceUnavailableException(
+        'El proveedor no devolvio ninguna imagen',
+      );
+    }
+
+    const detalleEntrada = json.usage?.input_tokens_details;
+    return {
+      data: Buffer.from(b64, 'base64'),
+      format: json.output_format ?? 'png',
+      model: request.model,
+      usage: json.usage
+        ? {
+            inputImageTokens: detalleEntrada?.image_tokens ?? 0,
+            inputTextTokens: detalleEntrada?.text_tokens ?? 0,
+            outputTokens: json.usage.output_tokens ?? 0,
           }
         : null,
     };
@@ -296,6 +401,26 @@ interface OpenAiCompletion {
   model?: string;
   choices?: { message?: { content?: string | null } }[];
   usage?: { prompt_tokens?: number; completion_tokens?: number };
+}
+
+/** Respuesta de `/images/edits`. */
+interface OpenAiImageEdit {
+  output_format?: string;
+  data?: { b64_json?: string }[];
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    input_tokens_details?: { image_tokens?: number; text_tokens?: number };
+  };
+}
+
+/**
+ * Extension a partir del tipo MIME, solo para dar nombre al fichero del
+ * multipart. El proveedor mira los bytes, pero rechaza un nombre sin extension.
+ */
+function extensionDe(mimeType: string): string {
+  const sub = mimeType.split('/')[1] ?? 'png';
+  return sub === 'jpeg' ? 'jpg' : sub;
 }
 
 interface OpenAiStreamChunk {

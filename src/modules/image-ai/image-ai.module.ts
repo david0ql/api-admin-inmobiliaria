@@ -6,9 +6,11 @@ import { Property } from '../properties/domain/property.entity';
 import { PropertyImage } from '../properties/domain/property-image.entity';
 import { ImagePrompt } from './domain/image-prompt.entity';
 import { ImageAnalysis } from './domain/image-analysis.entity';
+import { ImageRetouch } from './domain/image-retouch.entity';
 import { ImageAlbumAnalysis } from './domain/image-album-analysis.entity';
 import { ImagePromptService } from './image-prompt.service';
 import { ImageAnalysisService } from './image-analysis.service';
+import { ImageRetouchService } from './image-retouch.service';
 import { SamplesService } from './samples.service';
 import { ImageAiController } from './image-ai.controller';
 
@@ -45,6 +47,7 @@ import { ImageAiController } from './image-ai.controller';
       ImagePrompt,
       ImageAnalysis,
       ImageAlbumAnalysis,
+      ImageRetouch,
       Property,
       PropertyImage,
     ]),
@@ -54,6 +57,7 @@ import { ImageAiController } from './image-ai.controller';
   providers: [
     ImagePromptService,
     ImageAnalysisService,
+    ImageRetouchService,
     SamplesService,
     OpenAiProvider,
   ],

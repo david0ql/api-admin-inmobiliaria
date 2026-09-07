@@ -42,4 +42,36 @@ export class PropertyImage extends ImageAsset {
   @ApiPropertyOptional({ nullable: true, description: 'De donde se importo' })
   @Column({ type: 'text', nullable: true })
   sourceUrl: string | null;
+
+  /**
+   * El retoque con IA que esta viendose AHORA en esta foto, si lo hay.
+   *
+   * Nulo significa fotografia: lo que salio de la camara, pasado por nuestro
+   * reencodeo y nada mas. No nulo significa que lo que ve el visitante lo
+   * dibujo un modelo, y la fila de `image_retouch` a la que apunta dice que se
+   * le pidio, con que modelo, quien lo pulso y quien lo acepto.
+   *
+   * Es una sola columna y no un booleano `retocada` porque un booleano no
+   * contesta la pregunta que de verdad se hace seis meses despues, que nunca es
+   * "¿esta retocada?" sino "¿que le hicieron y quien dijo que si?".
+   *
+   * Vive aqui y no en `ImageAsset` —que comparten proyecto y tipologia— porque
+   * el retoque solo existe para fotos de inmueble. Las de un proyecto en obra
+   * son renders del constructor: ya son dibujos y nadie los confunde con una
+   * foto.
+   *
+   * SIN clave ajena a proposito. La relacion natural apunta al reves —
+   * `image_retouch` referencia a `property_image` con borrado en cascada— y
+   * declarar tambien esta direccion crearia un ciclo de dependencia entre las
+   * dos tablas que complica el borrado de un inmueble sin aportar nada: la
+   * integridad que importa es que el retoque muera con la foto, y esa ya esta.
+   */
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Retoque con IA que se esta mostrando; nulo si es la foto real',
+  })
+  @Index()
+  @Column({ name: 'retouch_id', type: 'uuid', nullable: true })
+  retouchId: string | null;
 }

@@ -227,6 +227,69 @@ export const envSchema = z.object({
     .min(500)
     .max(16_000)
     .default(4_000),
+
+  // --- retoque de imagenes con IA ------------------------------------------
+  //
+  // Otra cosa que el analisis, aunque comparta clave y proveedor. El analisis
+  // MIRA la foto y cuesta decimas de centavo; esto la REESCRIBE y cuesta entre
+  // 5 y 18 centavos. Y sobre todo: el analisis produce texto que nadie publica,
+  // y esto produce la imagen que ve el comprador.
+  //
+  // Nunca es automatico. Lo dispara una persona del equipo, foto a foto.
+
+  /**
+   * Enciende o apaga el retoque sin tocar el analisis.
+   *
+   * Apagado por defecto, al reves que `IMAGE_AI_ENABLED`. No es simetria mal
+   * puesta: encender el analisis gasta un poco y no cambia ningun anuncio,
+   * mientras que encender esto pone al alcance de un boton la capacidad de
+   * modificar como se ve un inmueble real. Que la agencia lo encienda a
+   * proposito, sabiendo lo que enciende.
+   */
+  RETOUCH_ENABLED: bool.default(false),
+
+  /**
+   * Modelo del retoque. `gpt-image-2` es el unico de OpenAI que hoy acepta
+   * `/images/edits` con una foto de entrada; `gpt-image-1` se retira el 23 de
+   * octubre de 2026.
+   */
+  RETOUCH_MODEL: z.string().default('gpt-image-2'),
+
+  /**
+   * Calidad de la generacion. NO es una palanca de gasto: es de fidelidad.
+   *
+   * Medido sobre fotos reales del catalogo: con `medium`, y con la instruccion
+   * explicita de no tocar nada, el modelo le invento una moldura de escayola al
+   * techo de una sala y cambio un plafon de superficie por un empotrado. Con
+   * `high` y el mismo encargo, una cocina salio intacta —muebles, granito,
+   * cuadros y el balde de la trapeadora en su sitio—. La diferencia son 13
+   * centavos por foto y es lo que separa una foto del inmueble de un dibujo
+   * parecido al inmueble.
+   *
+   * Por eso el valor por defecto es `high` aunque sea el caro. Se deja
+   * configurable para poder medirlo de nuevo cuando cambie el modelo, no para
+   * ahorrar.
+   */
+  RETOUCH_QUALITY: z.enum(['low', 'medium', 'high', 'auto']).default('high'),
+
+  /**
+   * Tope de retoques por foto. Frena el "prueba otra vez" indefinido, que es
+   * como esta funcion se convierte en una factura sorpresa: cada intento se
+   * cobra aunque se descarte.
+   */
+  RETOUCH_MAX_PER_IMAGE: z.coerce.number().int().min(1).max(50).default(6),
+
+  /**
+   * Cuanto se espera al proveedor. Una edicion real tarda entre 30 y 60
+   * segundos —medido: 35 s en calidad media—, asi que el limite tiene que ser
+   * generoso: cortar antes de tiempo es pagar la llamada y tirar el resultado.
+   */
+  RETOUCH_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .min(30_000)
+    .max(600_000)
+    .default(180_000),
 });
 
 export type Env = z.infer<typeof envSchema>;

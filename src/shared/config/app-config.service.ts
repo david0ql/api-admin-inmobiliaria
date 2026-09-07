@@ -151,4 +151,23 @@ export class AppConfigService {
       maxOutputTokens: this.get('IMAGE_AI_MAX_OUTPUT_TOKENS'),
     };
   }
+
+  /**
+   * El retoque con IA. Como el analisis, `enabled` incluye que haya clave: sin
+   * `OPENAI_API_KEY` el modulo entero degrada y el panel esconde el boton en
+   * lugar de dejar que alguien pulse y reciba un 503.
+   *
+   * A diferencia del analisis, la bandera viene apagada de fabrica: esto no
+   * produce un texto que nadie ve, produce la foto que ve el comprador.
+   */
+  get retouch() {
+    return {
+      enabled:
+        this.get('RETOUCH_ENABLED') && Boolean(this.get('OPENAI_API_KEY')),
+      model: this.get('RETOUCH_MODEL'),
+      quality: this.get('RETOUCH_QUALITY'),
+      maxPerImage: this.get('RETOUCH_MAX_PER_IMAGE'),
+      timeoutMs: this.get('RETOUCH_TIMEOUT_MS'),
+    };
+  }
 }
