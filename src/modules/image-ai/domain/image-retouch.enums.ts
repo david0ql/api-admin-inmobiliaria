@@ -65,6 +65,16 @@ export const RETOUCH_KIND_LABEL: Record<RetouchKind, string> = {
  * mira tiene que ser una persona que conoce el inmueble.
  */
 export enum RetouchStatus {
+  /**
+   * En vuelo: se le pidio al proveedor y todavia no ha contestado.
+   *
+   * Existe porque una edicion real tarda entre 90 y 100 segundos, medido. Con
+   * una peticion sincrona eso muere en el `proxy_read_timeout` de nginx —60
+   * segundos por defecto— y el asesor ve un error de una llamada que se cobro y
+   * que en realidad salio bien. La fila se crea antes de llamar, se devuelve al
+   * instante y el panel sondea.
+   */
+  PROCESANDO = 'PROCESANDO',
   /** Hecho y pagado, esperando que un asesor lo vea y decida. */
   PENDIENTE = 'PENDIENTE',
   /** El asesor lo acepto: la foto del anuncio es ahora la retocada. */

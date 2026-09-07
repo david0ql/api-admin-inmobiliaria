@@ -1,5 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
+import {
+  AfterLoad,
+  Column,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+} from 'typeorm';
 import { ImageAsset } from '../../media/image-asset.entity';
 import { Property } from './property.entity';
 
@@ -74,4 +81,39 @@ export class PropertyImage extends ImageAsset {
   @Index()
   @Column({ name: 'retouch_id', type: 'uuid', nullable: true })
   retouchId: string | null;
+
+  /**
+   * Cuando se acepto el retoque que se esta viendo. Nula si la foto es real.
+   *
+   * Se guarda aqui, duplicando el `decided_at` de la fila del retoque, para que
+   * saber si una foto del catalogo es una fotografia no obligue a un join. Esa
+   * pregunta se hace desde la galeria, desde el visor y desde la ficha, y una
+   * marca que solo se puede consultar pagando un join es una marca que las
+   * pantallas acaban no pintando.
+   */
+  @ApiPropertyOptional({ nullable: true })
+  @Column({ name: 'retouched_at', type: 'timestamptz', nullable: true })
+  retouchedAt: Date | null;
+
+  /**
+   * La marca, tal y como la leen las pantallas.
+   *
+   * No son columnas: se calculan al cargar la fila. Existen porque el panel y
+   * la web no tienen por que saber que por dentro esto es una clave ajena a una
+   * tabla de retoques — necesitan una respuesta de si o no, y necesitan que
+   * viaje en CUALQUIER sitio donde salga una imagen, no solo en la pantalla de
+   * retoque. El catalogo donde no se distingue lo real de lo generado es
+   * precisamente el problema de fuera de esa pantalla.
+   */
+  @ApiProperty({ description: 'Si lo que se ve lo dibujo un modelo' })
+  aiEdited: boolean;
+
+  @ApiPropertyOptional({ nullable: true })
+  aiEditedAt: string | null;
+
+  @AfterLoad()
+  marcarSiEsGenerada(): void {
+    this.aiEdited = Boolean(this.retouchId);
+    this.aiEditedAt = this.retouchedAt ? this.retouchedAt.toISOString() : null;
+  }
 }

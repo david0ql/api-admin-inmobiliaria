@@ -28,6 +28,7 @@ import {
   clasificarInstruccion,
   encabezadoDocumental,
 } from './retouch-frontier';
+import { INSTRUCCION_POR_DEFECTO } from './dto/image-retouch.dto';
 import type { RetouchDto } from './dto/image-retouch.dto';
 
 /**
@@ -92,6 +93,18 @@ const COSTE_ORIENTATIVO_USD: Record<string, number> = {
  * mayor de 3840 px como maximo, proporcion de 3:1 como mucho y entre 655.360 y
  * 8.294.400 pixeles en total.
  */
+/**
+ * Lo que cuesta ANALIZAR una foto, para poder decir cuantas veces mas cuesta
+ * retocarla.
+ *
+ * Una imagen a 800 px con `detail: low` son unos 85 tokens de entrada mas la
+ * parte proporcional de la respuesta del lote; con `gpt-4.1-mini` sale del
+ * orden de medio milesimo de dolar. Es un orden de magnitud, no una factura, y
+ * se usa solo para la comparacion — el gasto real del analisis lo lleva su
+ * propio modulo.
+ */
+const COSTE_ANALISIS_USD = 0.0005;
+
 const LADO_MULTIPLO = 16;
 const LADO_MAXIMO = 3840;
 const PIXELES_MINIMOS = 655_360;
@@ -138,6 +151,29 @@ export class ImageRetouchService {
    * asesor escribe, en vez de despues de cobrarle. Una advertencia que llega
    * despues del cobro no es una advertencia, es un recibo.
    */
+  /**
+   * Lo que el panel necesita para pintar el boton antes de que nadie lo pulse.
+   *
+   * `costeAnalisis` va al lado del coste del retoque a peticion del panel, y la
+   * razon es buena: "0,245 USD" no le dice nada a un asesor, y "0,245 USD, unas
+   * quinientas veces lo que cuesta analizarla" si. La cifra del analisis sale
+   * de la misma medicion que la otra —una foto a 800 px con `gpt-4.1-mini` en
+   * detalle bajo— y por eso esta aqui y no escrita a mano en el panel: el dia
+   * que se cambie de modelo, las dos cifras se mueven juntas o la comparacion
+   * miente.
+   */
+  estadoParaPanel() {
+    const { enabled, quality, model } = this.config.retouch;
+    return {
+      enabled,
+      coste: COSTE_ORIENTATIVO_USD[quality] ?? null,
+      moneda: 'USD',
+      costeAnalisis: COSTE_ANALISIS_USD,
+      model,
+      quality,
+    };
+  }
+
   previsualizar(instruccion: string) {
     const veredicto = clasificarInstruccion(instruccion);
     const { quality, model } = this.config.retouch;
@@ -152,6 +188,58 @@ export class ImageRetouchService {
       model,
       quality,
     };
+  }
+
+  /**
+   * Lo que el panel tiene que enseñar de una foto: el retoque que manda.
+   *
+   * El mas reciente que siga vivo —en curso, listo para decidir o ya aplicado—.
+   * Los descartados, los revertidos y los fallidos no se devuelven aqui aunque
+   * sigan en la tabla: la pantalla pregunta "que hay ahora con esta foto", y la
+   * respuesta a eso no es un intento que alguien ya rechazo. El historial
+   * completo, con lo que costo cada intento, esta en `listarPorImagen`.
+   */
+  async actualPorImagen(
+    imageId: string,
+    actor: AuthenticatedActor,
+  ): Promise<ImageRetouch> {
+    await this.cargarImagen(imageId, actor);
+    const fila = await this.retouches.findOne({
+      where: [
+        { propertyImageId: imageId, status: RetouchStatus.PROCESANDO },
+        { propertyImageId: imageId, status: RetouchStatus.PENDIENTE },
+        { propertyImageId: imageId, status: RetouchStatus.APLICADO },
+      ],
+      order: { createdAt: 'DESC' },
+    });
+    // 404 y no `null`: el panel esconde el boton de decidir cuando no hay nada
+    // que decidir, y distinguir "no hay" de "hubo un error" importa.
+    if (!fila) throw new NotFoundException('Esta foto no tiene ningun retoque');
+    return fila;
+  }
+
+  /**
+   * Volver al original desde la foto, sin saber el id del retoque.
+   *
+   * El panel ofrece "Volver a la foto original" desde la galeria, donde lo
+   * unico que se tiene a mano es la imagen. Busca el retoque aplicado y lo
+   * revierte.
+   */
+  async revertirPorImagen(
+    imageId: string,
+    actor: AuthenticatedActor,
+  ): Promise<ImageRetouch> {
+    await this.cargarImagen(imageId, actor, { paraEscribir: true });
+    const fila = await this.retouches.findOne({
+      where: { propertyImageId: imageId, status: RetouchStatus.APLICADO },
+      order: { createdAt: 'DESC' },
+    });
+    if (!fila) {
+      throw new NotFoundException(
+        'Esta foto no tiene ningun retoque aplicado: ya es la original',
+      );
+    }
+    return this.revertir(fila.id, actor);
   }
 
   /** Los retoques de una foto, del mas nuevo al mas viejo. */
@@ -186,10 +274,13 @@ export class ImageRetouchService {
       paraEscribir: true,
     });
 
-    const instruccion = dto.instruction.trim();
-    if (!instruccion) {
-      throw new BadRequestException('Hay que decir que se quiere retocar');
-    }
+    /*
+      Sin instruccion se hace el revelado conservador. Es lo que manda el panel
+      cuando el asesor solo pulsa "retocar", y tiene que ser el subconjunto
+      seguro: un valor por defecto capaz de cambiar la escena convertiria ese
+      boton en una alteracion que nadie pidio.
+    */
+    const instruccion = (dto.instruction ?? INSTRUCCION_POR_DEFECTO).trim();
 
     const veredicto = clasificarInstruccion(instruccion);
 
@@ -219,19 +310,94 @@ export class ImageRetouchService {
       );
     }
 
-    const { model, quality, timeoutMs } = this.config.retouch;
+    const { model, quality } = this.config.retouch;
     const prompt = `${encabezadoDocumental(veredicto.kind)}\n\nLo que se pide: ${instruccion}`;
-
-    const original = await this.leerOriginal(image);
     const size = this.tamanoSalida(image.width, image.height);
 
     /*
       La instantanea del original se toma ANTES de llamar a nadie. Si se tomara
-      despues y la llamada tardara un minuto —tarda entre 30 y 60 segundos—,
-      otra pulsacion podria haber cambiado la foto por el camino y estariamos
-      guardando como "original" algo que ya era un retoque.
+      despues y la llamada tardara minuto y medio —tarda entre 90 y 100
+      segundos—, otra pulsacion podria haber cambiado la foto por el camino y
+      estariamos guardando como "original" algo que ya era un retoque.
     */
-    const instantanea = this.instantanea(image);
+    const fila = await this.retouches.save(
+      this.retouches.create({
+        propertyImageId: image.id,
+        propertyId: image.propertyId,
+        instruction: instruccion,
+        kind: veredicto.kind,
+        motivos: veredicto.motivos,
+        promptEnviado: prompt,
+        model,
+        quality,
+        size,
+        originalSnapshot: this.instantanea(image),
+        retouchedSnapshot: null,
+        status: RetouchStatus.PROCESANDO,
+        requestedByAgentId: actor.id,
+        alteracionAsumida: Boolean(dto.alteracionAsumida),
+        error: null,
+      }),
+    );
+
+    /*
+      Y aqui se devuelve, sin esperar. La edicion tarda entre 90 y 100 segundos
+      medidos, y una peticion HTTP que dura minuto y medio no sobrevive al
+      `proxy_read_timeout` de nginx, que por defecto son 60: el asesor veria un
+      error de una llamada que se cobro y que salio bien. El panel sondea la
+      fila hasta que deja de estar PROCESANDO.
+
+      El `void` es deliberado y `ejecutar` no puede lanzar: una promesa
+      rechazada sin nadie escuchando tumba el proceso en Node.
+    */
+    void this.ejecutar(fila.id, image, prompt);
+
+    return fila;
+  }
+
+  /**
+   * La parte lenta, ya sin nadie esperando al otro lado.
+   *
+   * No lanza NUNCA. Todo lo que pueda salir mal termina escrito en la fila,
+   * porque a partir de la llamada al proveedor el dinero ya esta gastado y un
+   * fallo que no deja rastro es un gasto invisible.
+   */
+  private async ejecutar(
+    retouchId: string,
+    image: PropertyImage,
+    prompt: string,
+  ): Promise<void> {
+    const { model, quality, timeoutMs } = this.config.retouch;
+
+    const marcarFallido = async (
+      motivo: string,
+      coste = 0,
+      usage = null as {
+        inputImageTokens: number;
+        inputTextTokens: number;
+        outputTokens: number;
+      } | null,
+    ) => {
+      await this.retouches.update(retouchId, {
+        status: RetouchStatus.FALLIDO,
+        error: motivo,
+        costUsd: coste.toFixed(5),
+        inputTokens:
+          (usage?.inputImageTokens ?? 0) + (usage?.inputTextTokens ?? 0),
+        outputTokens: usage?.outputTokens ?? 0,
+      });
+    };
+
+    let original: Buffer;
+    try {
+      original = await this.leerOriginal(image);
+    } catch (error) {
+      await marcarFallido(mensajeDe(error));
+      return;
+    }
+
+    const fila = await this.retouches.findOne({ where: { id: retouchId } });
+    if (!fila) return;
 
     // El corte por tiempo es generoso a proposito: cortar una edicion a medias
     // la paga igual y no deja nada. Ver `RETOUCH_TIMEOUT_MS`.
@@ -245,51 +411,19 @@ export class ImageRetouchService {
         image: original,
         mimeType: 'image/webp',
         prompt,
-        size,
+        size: fila.size,
         quality,
         signal: abort.signal,
       });
     } catch (error) {
-      /*
-        El intento fallido tambien se guarda. Un fallo del proveedor puede
-        haberse cobrado o no, pero lo que seguro que no se puede es perder que
-        alguien lo intento: sin la fila, un asesor pulsaria cinco veces contra
-        un proveedor caido y nadie sabria por que la factura no cuadra.
-      */
-      await this.retouches.save(
-        this.retouches.create({
-          propertyImageId: image.id,
-          propertyId: image.propertyId,
-          instruction: instruccion,
-          kind: veredicto.kind,
-          motivos: veredicto.motivos,
-          promptEnviado: prompt,
-          model,
-          quality,
-          size,
-          originalSnapshot: instantanea,
-          retouchedSnapshot: null,
-          status: RetouchStatus.FALLIDO,
-          requestedByAgentId: actor.id,
-          alteracionAsumida: Boolean(dto.alteracionAsumida),
-          error: error instanceof Error ? error.message : String(error),
-        }),
-      );
-      throw error;
+      await marcarFallido(mensajeDe(error));
+      return;
     } finally {
       clearTimeout(temporizador);
     }
 
     const costeUsd = this.calcularCoste(editada.usage);
 
-    /*
-      Todo lo que queda por hacer va dentro del try, y no es celo: a partir de
-      aqui la llamada YA ESTA PAGADA. Si guardar el fichero falla y dejamos que
-      la excepcion suba sin escribir la fila, el dinero se va sin dejar rastro
-      —paso de verdad en la primera prueba contra fotos reales— y desde el panel
-      se ve exactamente igual que un error gratuito.
-    */
-    let guardada: Awaited<ReturnType<StorageService['saveImage']>>;
     try {
       /*
         Se reencodean los pixeles antes de entregarlos al almacen, y hay que
@@ -313,64 +447,19 @@ export class ImageRetouchService {
       */
       const soloPixeles = await sharp(editada.data).png().toBuffer();
 
-      guardada = await this.storage.saveImage(
+      const guardada = await this.storage.saveImage(
         soloPixeles,
         StorageService.directoryOf(image.storageKey),
         'retoque.png',
       );
-    } catch (error) {
-      await this.retouches.save(
-        this.retouches.create({
-          propertyImageId: image.id,
-          propertyId: image.propertyId,
-          instruction: instruccion,
-          kind: veredicto.kind,
-          motivos: veredicto.motivos,
-          promptEnviado: prompt,
-          model: editada.model,
-          quality,
-          size,
-          // El coste se guarda aunque no haya imagen: se pago igual.
-          costUsd: costeUsd.toFixed(5),
-          inputTokens:
-            (editada.usage?.inputImageTokens ?? 0) +
-            (editada.usage?.inputTextTokens ?? 0),
-          outputTokens: editada.usage?.outputTokens ?? 0,
-          originalSnapshot: instantanea,
-          retouchedSnapshot: null,
-          status: RetouchStatus.FALLIDO,
-          requestedByAgentId: actor.id,
-          alteracionAsumida: Boolean(dto.alteracionAsumida),
-          error: `El proveedor devolvio la imagen pero no se pudo guardar: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        }),
-      );
-      this.logger.error(
-        `Retoque pagado y perdido en la imagen ${image.id}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-      throw error;
-    }
 
-    return this.retouches.save(
-      this.retouches.create({
-        propertyImageId: image.id,
-        propertyId: image.propertyId,
-        instruction: instruccion,
-        kind: veredicto.kind,
-        motivos: veredicto.motivos,
-        promptEnviado: prompt,
+      await this.retouches.update(retouchId, {
         model: editada.model,
-        quality,
-        size,
         costUsd: costeUsd.toFixed(5),
         inputTokens:
           (editada.usage?.inputImageTokens ?? 0) +
           (editada.usage?.inputTextTokens ?? 0),
         outputTokens: editada.usage?.outputTokens ?? 0,
-        originalSnapshot: instantanea,
         retouchedSnapshot: {
           storageKey: guardada.key,
           url: guardada.url,
@@ -382,13 +471,21 @@ export class ImageRetouchService {
           bytes: guardada.bytes,
           checksum: guardada.checksum,
         },
-        // Nace PENDIENTE: la foto del anuncio sigue siendo la de antes.
+        // Listo, pero la foto del anuncio sigue siendo la de antes.
         status: RetouchStatus.PENDIENTE,
-        requestedByAgentId: actor.id,
-        alteracionAsumida: Boolean(dto.alteracionAsumida),
         error: null,
-      }),
-    );
+      });
+    } catch (error) {
+      // El coste se guarda aunque no haya imagen: se pago igual.
+      await marcarFallido(
+        `El proveedor devolvio la imagen pero no se pudo guardar: ${mensajeDe(error)}`,
+        costeUsd,
+        editada.usage,
+      );
+      this.logger.error(
+        `Retoque pagado y perdido en la imagen ${image.id}: ${mensajeDe(error)}`,
+      );
+    }
   }
 
   /**
@@ -402,6 +499,11 @@ export class ImageRetouchService {
   async aplicar(id: string, actor: AuthenticatedActor): Promise<ImageRetouch> {
     const retoque = await this.cargarRetoque(id, actor);
 
+    if (retoque.status === RetouchStatus.PROCESANDO) {
+      throw new BadRequestException(
+        'Este retoque todavia se esta generando: no hay nada que aceptar',
+      );
+    }
     if (retoque.status !== RetouchStatus.PENDIENTE) {
       throw new BadRequestException(
         `Este retoque ya esta ${retoque.status.toLowerCase()}`,
@@ -428,6 +530,7 @@ export class ImageRetouchService {
         una. Es la unica respuesta que quedara dentro de seis meses.
       */
       retouchId: retoque.id,
+      retouchedAt: new Date(),
       /*
         La huella perceptual se invalida a proposito. La calculo la subida sobre
         los pixeles de antes, y estos son otros: dejarla puesta haria que el
@@ -512,6 +615,7 @@ export class ImageRetouchService {
       checksum: previa.checksum,
       // Vuelve a ser una fotografia: se quita la marca.
       retouchId: null,
+      retouchedAt: null,
       perceptualHash: null,
     });
 
@@ -704,4 +808,9 @@ export class ImageRetouchService {
     });
     return retoque;
   }
+}
+
+/** El texto de un error, venga como venga. */
+function mensajeDe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

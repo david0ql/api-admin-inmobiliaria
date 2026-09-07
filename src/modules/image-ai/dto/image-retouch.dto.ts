@@ -1,11 +1,25 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsArray,
   IsBoolean,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   MinLength,
 } from 'class-validator';
+
+/**
+ * El retoque que se hace cuando nadie dice que quiere.
+ *
+ * El panel manda la peticion sin texto, asi que hay que tener una respuesta a
+ * "retoca esta foto" a secas. Es deliberadamente el subconjunto seguro: luz,
+ * color y contraste, sin tocar nada de lo que hay. Un valor por defecto que
+ * pudiera cambiar la escena convertiria ese boton en una alteracion silenciosa,
+ * que es justo lo que este modulo existe para que no pase.
+ */
+export const INSTRUCCION_POR_DEFECTO =
+  'Ajusta la exposicion, el contraste y el balance de blancos de esta fotografia de inmueble. No cambies nada de lo que aparece en ella.';
 
 export class RetouchPreviewDto {
   @ApiProperty({ example: 'Quita los cables de la calle y pon cielo azul' })
@@ -25,11 +39,29 @@ export class RetouchDto {
    * poder reconocerlo cuando alguien lo escriba. Con texto libre el asesor pide
    * lo que necesita y nosotros clasificamos lo que pidio.
    */
-  @ApiProperty({ example: 'La alcoba salio muy oscura, sube la exposicion' })
+  @ApiPropertyOptional({
+    example: 'La alcoba salio muy oscura, sube la exposicion',
+    description:
+      'Sin esto se hace un revelado conservador, que es el unico retoque que no altera lo que hay',
+  })
+  @IsOptional()
   @IsString()
   @MinLength(3)
   @MaxLength(1000)
-  instruction: string;
+  instruction?: string;
+
+  /**
+   * Las propuestas de las que sale esta peticion, si vino de ahi.
+   *
+   * Se guardan como referencia y no deciden nada por si solas: lo que se le
+   * manda al modelo es texto, y ese texto es el que se clasifica. Una propuesta
+   * no puede saltarse la frontera por venir de otro modulo.
+   */
+  @ApiPropertyOptional({ type: [String], format: 'uuid' })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  sugerenciaIds?: string[];
 
   /**
    * "Se que esto va a hacer que la foto deje de mostrar el inmueble como es."
