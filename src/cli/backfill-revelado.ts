@@ -128,6 +128,7 @@ async function main() {
           urlOriginal: true,
           developedAt: true,
           develop: true,
+          crop: true,
         },
         loadEagerRelations: false,
       });
@@ -161,8 +162,13 @@ async function main() {
                   throw new Error('falta el archivo');
                 }
                 const { revelado, bytes, urlRaw, urlRawLarge } =
-                  await storage.rerevelar(imagen.storageKey, (analisis) =>
-                    REVERTIR ? null : develop.plan(analisis),
+                  await storage.rerevelar(
+                    imagen.storageKey,
+                    (analisis) => (REVERTIR ? null : develop.plan(analisis)),
+                    // Sin esto, una pasada del proceso le quitaria el recorte a
+                    // toda foto encuadrada, dejando la fila diciendo que sigue
+                    // recortada. Y son 6.306 de una vez.
+                    imagen.crop,
                   );
 
                 await repo.update(

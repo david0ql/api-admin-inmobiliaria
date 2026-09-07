@@ -387,6 +387,16 @@ export class StorageService {
     decidir: (
       analisis: Awaited<ReturnType<ImageDevelopService['analizar']>>,
     ) => Revelado | null,
+    /**
+     * El recorte que ya tenia la foto, si tenia alguno.
+     *
+     * Va como parametro porque quien lo sabe es la fila, no el disco: las
+     * variantes recortadas no se distinguen de una foto que se encuadro asi.
+     * Sin esto, volver a revelar una foto recortada le quitaba el recorte y
+     * dejaba la fila diciendo que estaba recortada — y el que mas lo habria
+     * hecho es el proceso de las 6.306, en una sola pasada y sin decir nada.
+     */
+    caja: Caja | null = null,
   ): Promise<{
     revelado: Revelado | null;
     bytes: number;
@@ -395,9 +405,23 @@ export class StorageService {
   }> {
     const base = storageKey.replace(/-o\.webp$/, '');
     const negativo = await this.leerNegativo(base);
-    const bytesSinRevelar = await this.asegurarSinRevelar(base, negativo);
+    const bytesSinRevelar = await this.asegurarSinRevelar(base, negativo, caja);
+    /*
+      El revelado se mide sobre el negativo ENTERO, no sobre el recorte.
+
+      Asi recortar una foto no le cambia el revelado: si se midiera sobre lo
+      recortado, quitar una franja de suelo oscuro subiria la exposicion del
+      resto y la foto cambiaria de aspecto al recortarla, que no es lo que
+      nadie espera de un recorte.
+    */
     const revelado = decidir(await this.develop.analizar(negativo));
-    const bytes = await this.generarVariantes(base, negativo, revelado);
+    const bytes = await this.generarVariantes(
+      base,
+      negativo,
+      revelado,
+      VARIANTES,
+      caja,
+    );
     return {
       revelado,
       bytes: bytes + negativo.length + bytesSinRevelar,
@@ -433,7 +457,11 @@ export class StorageService {
       VARIANTES,
       caja,
     );
-    return { bytes };
+    // El "antes" tiene que llevar el mismo recorte que el "despues": si no, el
+    // comparador enseña una foto entera al lado de una recortada y quien mira
+    // concluye que el revelado le ha comido un trozo a la foto.
+    const bytesSinRevelar = await this.asegurarSinRevelar(base, negativo, caja);
+    return { bytes: bytes + bytesSinRevelar };
   }
 
   /**
@@ -446,13 +474,24 @@ export class StorageService {
    *
    * Se salta si ya existen porque el negativo no cambia nunca: rerevelar una
    * foto veinte veces no vuelve a generar su "antes" ni una sola.
+   *
+   * Con recorte SI se rehace, porque entonces el "antes" ya no es el mismo
+   * encuadre. Solo lo pagan las fotos recortadas, que son las pocas en las que
+   * alguien acepto una propuesta.
    */
   private async asegurarSinRevelar(
     base: string,
     negativo: Buffer,
+    caja: Caja | null = null,
   ): Promise<number> {
-    if (await this.fileExists(`${base}-rt.webp`)) return 0;
-    return this.generarVariantes(base, negativo, null, VARIANTES_SIN_REVELAR);
+    if (!caja && (await this.fileExists(`${base}-rt.webp`))) return 0;
+    return this.generarVariantes(
+      base,
+      negativo,
+      null,
+      VARIANTES_SIN_REVELAR,
+      caja,
+    );
   }
 
   /**

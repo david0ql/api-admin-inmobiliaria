@@ -378,8 +378,13 @@ export class ImageCollectionService {
   ): Promise<T> {
     const imagen = await this.propia(coleccion, imageId);
     const { revelado, bytes, urlRaw, urlRawLarge } =
-      await this.storage.rerevelar(imagen.storageKey, (analisis) =>
-        aplicar ? this.develop.plan(analisis) : null,
+      await this.storage.rerevelar(
+        imagen.storageKey,
+        (analisis) => (aplicar ? this.develop.plan(analisis) : null),
+        // El recorte que ya tuviera sobrevive: revelar y encuadrar son dos
+        // decisiones distintas sobre la misma foto, y tocar una no deshace la
+        // otra.
+        imagen.crop,
       );
 
     imagen.developedAt = new Date();

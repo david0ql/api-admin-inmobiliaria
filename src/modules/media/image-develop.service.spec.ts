@@ -369,6 +369,51 @@ describe('StorageService: el negativo y el deshacer', () => {
     );
   });
 
+  /*
+    Revelar y encuadrar son dos decisiones distintas sobre la misma foto, y las
+    dos se aplican regenerando desde el negativo. Eso las hace componibles, pero
+    tambien hace facil que una borre la otra sin avisar: el que mas lo habria
+    hecho es el proceso de las 6.306, en una sola pasada.
+  */
+  it('volver a revelar no le quita el recorte a la foto', async () => {
+    const guardada = await storage.saveImage(await fotoLavada(), 'pruebas');
+    const caja = { x: 0, y: 0, ancho: 1, alto: 0.7 };
+    await storage.recortar(guardada.key, caja, guardada.revelado);
+    const recortada = await sharp(join(raiz, guardada.key)).metadata();
+
+    await storage.rerevelar(
+      guardada.key,
+      (a) => new ImageDevelopService().plan(a),
+      caja,
+    );
+
+    const despues = await sharp(join(raiz, guardada.key)).metadata();
+    expect(despues.height).toBe(recortada.height);
+  });
+
+  it('el "antes" lleva el mismo recorte que el "despues"', async () => {
+    const guardada = await storage.saveImage(await fotoLavada(), 'pruebas');
+    const base = guardada.key.replace(/-o\.webp$/, '');
+    await storage.recortar(
+      guardada.key,
+      { x: 0, y: 0, ancho: 1, alto: 0.7 },
+      guardada.revelado,
+    );
+
+    /*
+      Si el "antes" se quedara entero, el comparador pondria una foto completa
+      al lado de una recortada y quien mira concluiria que el revelado le ha
+      comido un trozo a la foto. Un comparador que atribuye mal el cambio es
+      peor que no tenerlo.
+    */
+    const antes = await sharp(join(raiz, `${base}-rl.webp`)).metadata();
+    const despues = await sharp(join(raiz, `${base}-l.webp`)).metadata();
+    expect(antes.width / antes.height).toBeCloseTo(
+      despues.width / despues.height,
+      2,
+    );
+  });
+
   it('marca la version en la URL para que la cache de un anio se entere', () => {
     const marcada = StorageService.marcarVersion('/media/x/y-l.webp');
     expect(marcada).toMatch(/^\/media\/x\/y-l\.webp\?r=/);
