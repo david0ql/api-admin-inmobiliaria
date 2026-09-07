@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -195,6 +195,22 @@ describe('ImageDevelopService: el revelado', () => {
     expect(develop.plan(await develop.analizar(normal))?.gamma).toBeUndefined();
   });
 
+  it('redacta en español lo que le hizo a la foto', async () => {
+    const lavada = await interior({ comprime: 0.45, desplaza: 110 });
+    const plan = develop.plan(await develop.analizar(lavada));
+
+    /*
+      El texto sale de aqui y no del panel a proposito: quien sabe que
+      significa `g: 1.197` es este fichero. Con los numeros viajando solos, la
+      pantalla acaba inventando una traduccion —"+0,4 EV"— que no es lo que
+      hizo el codigo, porque esto no es un paso de exposicion, es una recta.
+    */
+    expect(plan!.resumen[0]).toMatch(
+      /^Niveles automaticos: \+\d+ % de contraste$/,
+    );
+    expect(plan!.resumen.at(-1)).toContain('Enfoque de salida');
+  });
+
   it('enfoca solo cuando el paso reduce de verdad', () => {
     const pipe = sharp({
       create: { width: 10, height: 10, channels: 3, background: '#fff' },
@@ -308,6 +324,49 @@ describe('StorageService: el negativo y el deshacer', () => {
 
     expect(existsSync(negativo)).toBe(true);
     expect(revelado).not.toBeNull();
+  });
+
+  /*
+    Sin esto, la unica forma de MIRAR la foto sin revelar era quitarle el
+    revelado de verdad: una escritura sobre el anuncio de un cliente para poder
+    mirarlo. Y sin comparar no se puede contestar la pregunta que origino todo
+    esto, que es si la foto se ve mejor.
+  */
+  it('publica la foto sin revelar en los dos tamanos que se miran', async () => {
+    const guardada = await storage.saveImage(await fotoLavada(), 'pruebas');
+    const base = guardada.key.replace(/-o\.webp$/, '');
+
+    expect(guardada.urlRaw).toBe(`/media/${base}-rt.webp`);
+    expect(guardada.urlRawLarge).toBe(`/media/${base}-rl.webp`);
+    for (const sufijo of ['-rt', '-rl']) {
+      expect(existsSync(join(raiz, `${base}${sufijo}.webp`))).toBe(true);
+    }
+
+    // Y es de verdad un "antes": no se parece a la version revelada del mismo
+    // tamano. Un comparador que enseñe dos veces la misma foto es peor que no
+    // tener comparador, porque afirma que no hubo cambio.
+    const antes = await sharp(join(raiz, `${base}-rl.webp`))
+      .raw()
+      .toBuffer();
+    const despues = await sharp(join(raiz, `${base}-l.webp`))
+      .raw()
+      .toBuffer();
+    expect(antes.equals(despues)).toBe(false);
+  });
+
+  it('no rehace el "antes" al volver a revelar: el negativo no cambia', async () => {
+    const guardada = await storage.saveImage(await fotoLavada(), 'pruebas');
+    const base = guardada.key.replace(/-o\.webp$/, '');
+    const antes = await readFile(join(raiz, `${base}-rt.webp`));
+
+    await storage.rerevelar(guardada.key, () => null);
+    await storage.rerevelar(guardada.key, (a) =>
+      new ImageDevelopService().plan(a),
+    );
+
+    expect((await readFile(join(raiz, `${base}-rt.webp`))).equals(antes)).toBe(
+      true,
+    );
   });
 
   it('marca la version en la URL para que la cache de un anio se entere', () => {

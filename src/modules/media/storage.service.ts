@@ -24,6 +24,9 @@ export interface StoredImage {
   checksum: string;
   /** El revelado aplicado, o null si la foto no necesitaba ninguno. */
   revelado: Revelado | null;
+  /** La foto SIN revelar, para poder comparar sin escribir nada. */
+  urlRaw: string;
+  urlRawLarge: string;
 }
 
 const ACCEPTED = new Set([
@@ -89,6 +92,23 @@ const VARIANTES = [
  * ya hay. Es el precio de poder decir que no se ha perdido nada.
  */
 const RAW_SUFFIX = '-r.webp';
+
+/**
+ * Las dos versiones SIN revelar que se publican, para poder comparar.
+ *
+ * El negativo esta a 2560 px y pintar eso en una rejilla de 6.306 fotos no es
+ * una opcion, asi que el "antes" tiene sus propios tamanos de listado y de
+ * ficha. Son los mismos anchos y calidades que sus gemelas reveladas: si el
+ * "antes" se sirviera con otra calidad, media diferencia de la comparacion
+ * seria el compresor y no el revelado, y entonces la comparacion no dice nada.
+ *
+ * Se generan una sola vez, cuando nace el negativo, porque el negativo no
+ * cambia nunca. Ocupan unos 35 kB por foto — unos 220 MB sobre las 6.306.
+ */
+const VARIANTES_SIN_REVELAR = [
+  { sufijo: '-rl.webp', ancho: LARGE_WIDTH, calidad: 82 },
+  { sufijo: '-rt.webp', ancho: THUMB_WIDTH, calidad: 78 },
+] as const;
 
 /**
  * libvips paraleliza cada operacion entre todos los nucleos. Con varias fotos
@@ -229,6 +249,7 @@ export class StorageService {
       .webp({ quality: 86, effort: 3 })
       .toBuffer();
     await this.escribirEntero(`${base}${RAW_SUFFIX}`, negativo);
+    const bytesSinRevelar = await this.asegurarSinRevelar(base, negativo);
 
     const revelado = revelar
       ? this.develop.plan(await this.develop.analizar(negativo, metrics))
@@ -244,10 +265,12 @@ export class StorageService {
       urlOriginal: this.publicUrl(originalKey),
       width,
       height,
-      bytes: bytes + negativo.length,
+      bytes: bytes + negativo.length + bytesSinRevelar,
       mimeType: 'image/webp',
       checksum,
       revelado,
+      urlRaw: this.publicUrl(`${base}-rt.webp`),
+      urlRawLarge: this.publicUrl(`${base}-rl.webp`),
     };
   }
 
@@ -268,12 +291,17 @@ export class StorageService {
     base: string,
     negativo: Buffer,
     revelado: Revelado | null,
+    variantes: readonly {
+      sufijo: string;
+      ancho: number;
+      calidad: number;
+    }[] = VARIANTES,
   ): Promise<number> {
     let anterior = negativo;
     let anchoPrevio = (await sharp(negativo).metadata()).width ?? ARCHIVE_WIDTH;
     let total = 0;
 
-    for (const [indice, variante] of VARIANTES.entries()) {
+    for (const [indice, variante] of variantes.entries()) {
       /*
         Sin revelado que aplicar, el archivo ES el negativo: se copia tal cual.
 
@@ -294,7 +322,17 @@ export class StorageService {
         withoutEnlargement: true,
       });
       if (indice === 0) pipe = this.develop.aplicar(pipe, revelado);
-      pipe = this.develop.enfoque(pipe, anchoPrevio > variante.ancho);
+      /*
+        El enfoque de salida es una de las cuatro operaciones del revelado, no
+        un arreglo tecnico aparte. Asi que sin revelado tampoco se enfoca: es lo
+        que hace que "deshacer" devuelva la foto como estaba y que el "antes"
+        que se publica para comparar sea de verdad un antes, y no un antes ya
+        con parte del despues puesto.
+      */
+      pipe = this.develop.enfoque(
+        pipe,
+        !!revelado && anchoPrevio > variante.ancho,
+      );
 
       anterior = await pipe
         .webp({ quality: variante.calidad, effort: 3 })
@@ -322,12 +360,42 @@ export class StorageService {
     decidir: (
       analisis: Awaited<ReturnType<ImageDevelopService['analizar']>>,
     ) => Revelado | null,
-  ): Promise<{ revelado: Revelado | null; bytes: number }> {
+  ): Promise<{
+    revelado: Revelado | null;
+    bytes: number;
+    urlRaw: string;
+    urlRawLarge: string;
+  }> {
     const base = storageKey.replace(/-o\.webp$/, '');
     const negativo = await this.leerNegativo(base);
+    const bytesSinRevelar = await this.asegurarSinRevelar(base, negativo);
     const revelado = decidir(await this.develop.analizar(negativo));
     const bytes = await this.generarVariantes(base, negativo, revelado);
-    return { revelado, bytes: bytes + negativo.length };
+    return {
+      revelado,
+      bytes: bytes + negativo.length + bytesSinRevelar,
+      urlRaw: this.publicUrl(`${base}-rt.webp`),
+      urlRawLarge: this.publicUrl(`${base}-rl.webp`),
+    };
+  }
+
+  /**
+   * Publica el "antes" en tamano de listado y de ficha, si no estaba ya.
+   *
+   * Existe por una razon muy concreta: sin esto, la unica forma de MIRAR como
+   * era la foto antes del revelado era quitarle el revelado de verdad, o sea
+   * escribir sobre la foto publicada para poder mirarla. Eso no es comparar,
+   * es un experimento sobre el anuncio de un cliente.
+   *
+   * Se salta si ya existen porque el negativo no cambia nunca: rerevelar una
+   * foto veinte veces no vuelve a generar su "antes" ni una sola.
+   */
+  private async asegurarSinRevelar(
+    base: string,
+    negativo: Buffer,
+  ): Promise<number> {
+    if (await this.fileExists(`${base}-rt.webp`)) return 0;
+    return this.generarVariantes(base, negativo, null, VARIANTES_SIN_REVELAR);
   }
 
   /**
@@ -509,7 +577,15 @@ export class StorageService {
     if (!key) return;
     const base = key.replace(/-o\.webp$/, '');
     await Promise.all(
-      ['-t.webp', '-m.webp', '-l.webp', '-o.webp', RAW_SUFFIX].map((suffix) =>
+      [
+        '-t.webp',
+        '-m.webp',
+        '-l.webp',
+        '-o.webp',
+        '-rt.webp',
+        '-rl.webp',
+        RAW_SUFFIX,
+      ].map((suffix) =>
         rm(join(this.root, `${base}${suffix}`), { force: true }),
       ),
     );

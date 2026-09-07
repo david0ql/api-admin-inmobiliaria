@@ -46,6 +46,19 @@ export interface Revelado {
   balance?: { r: number; g: number; b: number };
   /** Levantado de medios para las fotos que siguen oscuras tras los niveles. */
   gamma?: number;
+  /**
+   * Lo que se le hizo, redactado en español y listo para pintar.
+   *
+   * El texto sale de aqui y no del panel porque quien sabe que significan estos
+   * numeros es este fichero: `g: 1.197` no es "+0,4 EV" ni ninguna otra cosa
+   * que suene a camara, es una recta. Con los numeros crudos viajando solos, la
+   * pantalla acabaria inventando una traduccion y diciendo algo distinto de lo
+   * que hizo el codigo.
+   *
+   * Se guarda junto a los numeros, no en lugar de ellos: si un dia cambia la
+   * redaccion, lo que decide sigue siendo `niveles`, `balance` y `gamma`.
+   */
+  resumen: string[];
 }
 
 /**
@@ -191,7 +204,7 @@ export class ImageDevelopService {
    * inventario— no se toca porque no hay nada que revelar en el.
    */
   plan(a: AnalisisTonal): Revelado | null {
-    const revelado: Revelado = { version: REVELADO_VERSION };
+    const revelado: Revelado = { version: REVELADO_VERSION, resumen: [] };
 
     // --- niveles ---
     //
@@ -257,9 +270,9 @@ export class ImageDevelopService {
       revelado.gamma = redondear(acotar(1 + (100 - tras) / 300, 1.02, 1.18));
     }
 
-    return revelado.niveles || revelado.balance || revelado.gamma
-      ? revelado
-      : null;
+    if (!revelado.niveles && !revelado.balance && !revelado.gamma) return null;
+    revelado.resumen = redactar(revelado);
+    return revelado;
   }
 
   /**
@@ -305,6 +318,45 @@ function percentil(hist: number[], total: number, p: number): number {
     if (acumulado >= limite) return v;
   }
   return 255;
+}
+
+/**
+ * El revelado en frases, para el panel.
+ *
+ * Se dice lo que se ve, no la formula: "+20 % de contraste" es lo que hace una
+ * ganancia de 1,20, y nadie tiene que saber que hay una recta detras.
+ */
+function redactar(r: Revelado): string[] {
+  const lineas: string[] = [];
+  if (r.niveles) {
+    lineas.push(
+      `Niveles automaticos: +${Math.round((r.niveles.g - 1) * 100)} % de contraste`,
+    );
+  }
+  if (r.balance) {
+    const canales: [string, number][] = [
+      ['rojo', r.balance.r],
+      ['verde', r.balance.g],
+      ['azul', r.balance.b],
+    ];
+    const movidos = canales
+      // Por debajo del 1 % no se ve, y enumerarlo solo hace ruido.
+      .filter(([, k]) => Math.abs(k - 1) >= 0.01)
+      .sort((a, b) => Math.abs(b[1] - 1) - Math.abs(a[1] - 1))
+      .map(
+        ([nombre, k]) =>
+          `${k > 1 ? '+' : '-'}${Math.round(Math.abs(k - 1) * 100)} % de ${nombre}`,
+      );
+    if (movidos.length) {
+      lineas.push(`Balance de blancos: ${movidos.join(', ')}`);
+    }
+  }
+  if (r.gamma) {
+    lineas.push(`Medios levantados: +${Math.round((r.gamma - 1) * 100)} %`);
+  }
+  // El enfoque va siempre que hay revelado, y solo donde la foto se reduce.
+  lineas.push('Enfoque de salida en los tamanos reducidos');
+  return lineas;
 }
 
 function acotar(v: number, min: number, max: number): number {

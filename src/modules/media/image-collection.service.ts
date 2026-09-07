@@ -206,6 +206,8 @@ export class ImageCollectionService {
               // revelado haya sido "no hacia falta nada" (`develop` nulo).
               developedAt: new Date(),
               develop: stored.revelado,
+              urlRaw: stored.urlRaw,
+              urlRawLarge: stored.urlRawLarge,
               width: stored.width,
               height: stored.height,
               bytes: stored.bytes,
@@ -375,14 +377,17 @@ export class ImageCollectionService {
     aplicar: boolean,
   ): Promise<T> {
     const imagen = await this.propia(coleccion, imageId);
-    const { revelado, bytes } = await this.storage.rerevelar(
-      imagen.storageKey,
-      (analisis) => (aplicar ? this.develop.plan(analisis) : null),
-    );
+    const { revelado, bytes, urlRaw, urlRawLarge } =
+      await this.storage.rerevelar(imagen.storageKey, (analisis) =>
+        aplicar ? this.develop.plan(analisis) : null,
+      );
 
     imagen.developedAt = new Date();
     imagen.develop = revelado;
     imagen.bytes = bytes;
+    // El "antes" no se reversiona: sale del negativo, que no cambia nunca.
+    imagen.urlRaw = urlRaw;
+    imagen.urlRawLarge = urlRawLarge;
     imagen.url = StorageService.marcarVersion(imagen.url);
     if (imagen.urlMedium) {
       imagen.urlMedium = StorageService.marcarVersion(imagen.urlMedium);

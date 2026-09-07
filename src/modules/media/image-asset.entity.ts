@@ -106,6 +106,29 @@ export abstract class ImageAsset extends BaseEntity {
   bytes: number | null;
 
   /**
+   * La misma foto SIN revelar, en tamaño de listado (560 px) y de ficha
+   * (1600 px).
+   *
+   * Existen para poder COMPARAR. Sin ellas, la única manera de ver cómo era la
+   * foto antes del revelado era quitárselo de verdad —una escritura sobre el
+   * anuncio de un cliente para poder mirarlo—, y sin comparación no hay forma
+   * de saber si el revelado mejoró la foto, que es justo lo que se pidió.
+   *
+   * No se sirve el negativo directamente porque está a 2560 px: una rejilla de
+   * comparación con 6.306 fotos a ese tamaño no se puede pintar.
+   *
+   * Nulas en las fotos que todavía no han pasado por el revelado; ahí no hay
+   * "antes" que enseñar porque lo que se ve YA es el antes.
+   */
+  @ApiPropertyOptional({ nullable: true })
+  @Column({ name: 'url_raw', type: 'text', nullable: true })
+  urlRaw: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @Column({ name: 'url_raw_large', type: 'text', nullable: true })
+  urlRawLarge: string | null;
+
+  /**
    * Cuándo se reveló la foto. Nulo mientras no se haya revelado.
    *
    * Es lo que hace que el proceso de las 6.306 antiguas se pueda cortar y

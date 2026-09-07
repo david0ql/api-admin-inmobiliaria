@@ -160,10 +160,10 @@ async function main() {
                 if (!existsSync(join(raiz, imagen.storageKey))) {
                   throw new Error('falta el archivo');
                 }
-                const { revelado, bytes } = await storage.rerevelar(
-                  imagen.storageKey,
-                  (analisis) => (REVERTIR ? null : develop.plan(analisis)),
-                );
+                const { revelado, bytes, urlRaw, urlRawLarge } =
+                  await storage.rerevelar(imagen.storageKey, (analisis) =>
+                    REVERTIR ? null : develop.plan(analisis),
+                  );
 
                 await repo.update(
                   { id: imagen.id },
@@ -171,6 +171,8 @@ async function main() {
                     developedAt: new Date(),
                     develop: revelado,
                     bytes,
+                    urlRaw,
+                    urlRawLarge,
                     // Sin marca de version el navegador y el proxy siguen
                     // sirviendo la foto vieja durante un anio: `/media/` va
                     // con `immutable`.
