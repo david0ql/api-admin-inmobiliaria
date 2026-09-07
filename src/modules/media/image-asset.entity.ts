@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Column, Index } from 'typeorm';
 import { BaseEntity } from '../../shared/database/base.entity';
 import type { Revelado } from './image-develop.service';
+import type { Caja } from './storage.service';
 
 /**
  * Qué es la imagen, no dónde cuelga.
@@ -156,6 +157,22 @@ export abstract class ImageAsset extends BaseEntity {
   @ApiPropertyOptional({ nullable: true })
   @Column({ type: 'jsonb', nullable: true })
   develop: Revelado | null;
+
+  /**
+   * El recorte que se le ha aplicado a esta foto, en fracciones de 0 a 1.
+   *
+   * Nulo es la foto entera, que es lo normal. Se guarda la DECISION y no el
+   * resultado, igual que con el revelado, y por el mismo motivo: asi recortar
+   * es reversible —se vuelve a generar desde el negativo sin caja— y recortar
+   * dos veces no acumula, porque la segunda caja se mide siempre sobre la foto
+   * completa.
+   *
+   * En fracciones y no en pixeles porque la misma decision vale para las cuatro
+   * variantes, de 2560 a 560.
+   */
+  @ApiPropertyOptional({ nullable: true })
+  @Column({ type: 'jsonb', nullable: true })
+  crop: Caja | null;
 
   /** El pie de foto que escribe la agencia: "Fachada", "Planta tipo". */
   @ApiPropertyOptional({ nullable: true })

@@ -1,4 +1,4 @@
-import { PropuestaService } from './propuesta.service';
+import { cajaDeCortes, PropuestaService } from './propuesta.service';
 import { Via, type Encuadre } from './framing';
 import type { ImageAnalysis } from './domain/image-analysis.entity';
 
@@ -35,7 +35,11 @@ const encuadre = (e: Partial<Encuadre>): Encuadre => ({
 /** Se prueba la traduccion, que es pura: no hace falta ni base ni modelo. */
 const traducir = (a: ImageAnalysis) =>
   (
-    new PropuestaService(null as never) as unknown as {
+    new PropuestaService(
+      null as never,
+      null as never,
+      null as never,
+    ) as unknown as {
       deAnalisis(a: ImageAnalysis): {
         metricas: unknown;
         sugerencias: {
@@ -59,6 +63,7 @@ describe('el reparto entre los dos bloques del panel', () => {
               borde: 'ABAJO',
               porcion: 20,
               medido: 35,
+              aplicable: 35,
               que: 'suelo vacio',
               auto: true,
             },
@@ -89,6 +94,7 @@ describe('el reparto entre los dos bloques del panel', () => {
               borde: 'IZQUIERDA',
               porcion: 15,
               medido: 45,
+              aplicable: 35,
               que: 'pared',
               auto: true,
             },
@@ -116,6 +122,7 @@ describe('el reparto entre los dos bloques del panel', () => {
               borde: 'DERECHA',
               porcion: 10,
               medido: 7,
+              aplicable: 0,
               que: 'pared blanca',
               auto: false,
             },
@@ -168,7 +175,14 @@ describe('el reparto entre los dos bloques del panel', () => {
     const a = analisis({
       framing: encuadre({
         cortes: [
-          { borde: 'ABAJO', porcion: 20, medido: 35, que: 'suelo', auto: true },
+          {
+            borde: 'ABAJO',
+            porcion: 20,
+            medido: 35,
+            aplicable: 14,
+            que: 'suelo',
+            auto: true,
+          },
         ],
       }),
       fixes: ['Abrir las cortinas'],
@@ -220,5 +234,58 @@ describe('las metricas que se enseñan al lado de la frase', () => {
     expect(r.metricas.aspecto).toBe(1.33);
     // Lo que no se midio va a null, no a 0: un 0 se leeria como "sin nitidez".
     expect(r.metricas.nitidez).toBeNull();
+  });
+});
+
+describe('cajaDeCortes', () => {
+  it('traduce los cortes a fracciones, que es lo que entiende el almacenamiento', () => {
+    // En fracciones y no en pixeles: la misma caja vale para 2560 y para 560.
+    expect(cajaDeCortes([{ borde: 'ABAJO', porcion: 14 }])).toEqual({
+      x: 0,
+      y: 0,
+      ancho: 1,
+      alto: 0.86,
+    });
+    expect(
+      cajaDeCortes([
+        { borde: 'IZQUIERDA', porcion: 20 },
+        { borde: 'ARRIBA', porcion: 10 },
+      ]),
+    ).toEqual({ x: 0.2, y: 0.1, ancho: 0.8, alto: 0.9 });
+  });
+
+  it('la lista vacia es el boton de deshacer, no un error', () => {
+    expect(cajaDeCortes([])).toBeNull();
+  });
+
+  it('con un borde repetido se queda con el mayor, no los suma', () => {
+    // Sumarlos es como se recorta media foto sin querer.
+    expect(
+      cajaDeCortes([
+        { borde: 'ABAJO', porcion: 10 },
+        { borde: 'ABAJO', porcion: 20 },
+      ]),
+    ).toEqual({ x: 0, y: 0, ancho: 1, alto: 0.8 });
+  });
+
+  it('se planta antes de destruir la foto', () => {
+    // Dos cortes opuestos del 35 % dejan un 30 % del ancho: eso ya no es un
+    // recorte, es otra foto, y la salida honesta es repetirla.
+    expect(() =>
+      cajaDeCortes([
+        { borde: 'IZQUIERDA', porcion: 35 },
+        { borde: 'DERECHA', porcion: 35 },
+      ]),
+    ).toThrow(/repetirla/);
+  });
+
+  it('ignora lo que no es un borde o no es un numero', () => {
+    expect(
+      cajaDeCortes([
+        { borde: 'ESQUINA' as never, porcion: 20 },
+        { borde: 'ABAJO', porcion: NaN },
+        { borde: 'ARRIBA', porcion: -5 },
+      ]),
+    ).toBeNull();
   });
 });

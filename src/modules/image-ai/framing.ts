@@ -46,6 +46,12 @@ export interface Corte extends CorteSugerido {
   /** Lo que mide el codigo de franja plana en ese mismo borde. */
   medido: number;
   /**
+   * Lo que de verdad se va a recortar: lo medido, acotado a lo que cabe sin
+   * que la web vuelva a recortar. Es el numero que hay que enseñar y aplicar;
+   * `medido` queda para poder explicar por que no se recorta todo.
+   */
+  aplicable: number;
+  /**
    * El codigo confirma la franja y el corte se puede aplicar sin que nadie lo
    * mire. Cuando es false la propuesta sigue en pie, pero la ejecuta —o la
    * descarta— una persona.
@@ -101,12 +107,73 @@ export interface Encuadre {
 const MINIMO_CONFIRMADO = 15;
 
 /**
- * Tope de lo que se recorta de un solo borde.
+ * Y cuanto hay que poder recortar de verdad para que merezca la pena hacerlo.
+ *
+ * Es un umbral DISTINTO del de arriba, y mezclarlos rompia la funcion entera:
+ * a 3:2 —el 95 % del inventario— lo que cabe quitar sin que la web vuelva a
+ * recortar es un 14 %, asi que exigiendo 15 tambien aqui no habria salido
+ * automatico ni un solo corte en todo el inventario. Una cosa es cuanta franja
+ * muerta hay (15) y otra cuanta se puede quitar (5).
+ *
+ * Que un 14 % ya se nota esta comprobado mirandolo: en una sala 3:2 quita el
+ * suelo vacio de abajo y no cuesta un solo pixel de ancho en la ficha.
+ */
+const MINIMO_APLICABLE = 5;
+
+/**
+ * Tope duro de lo que se recorta de un solo borde.
  *
  * Quitar mas de un tercio por un lado ya no es recortar, es encuadrar otra foto
  * — y eso no se hace sin que lo vea nadie.
  */
 export const MAXIMO_CORTE = 35;
+
+/**
+ * La franja de proporciones en la que la web pinta las fotos.
+ *
+ * La ficha usa `object-cover`, asi que el recorte del servidor NO es el ultimo:
+ * encima va el del navegador, que rellena la caja y tira lo que sobra. Una foto
+ * que se sale de esta franja se recorta OTRA VEZ, y por un borde que nadie
+ * eligio.
+ *
+ * Esta medido sobre una foto real: a un 3:2 se le quito el 35 % de abajo —un
+ * recorte correcto, que mejoraba la foto vista suelta— y quedo en 2,29:1. Al
+ * pintarla, el navegador se llevo el 24 % del ANCHO: desaparecieron la pared de
+ * la izquierda y el final de la barra de la cocina. Se gano quitar suelo vacio
+ * y se perdio media sala.
+ */
+const FICHA_MAS_ANCHA = 1.75;
+const FICHA_MAS_ALTA = 1.29;
+
+/**
+ * Cuanto se puede recortar de un borde sin que la web vuelva a recortar.
+ *
+ * Dos casos, y los dos salen de mirar el resultado renderizado:
+ *
+ * - Una foto que YA cae dentro de la franja de la ficha (el 95 % del
+ *   inventario es 3:2) se queda dentro: quitar alto la hace mas apaisada y
+ *   quitar ancho la hace mas alta, y pasarse por cualquiera de los dos lados
+ *   se paga con un segundo recorte que nadie decidio.
+ *
+ * - Una foto que ya esta FUERA —las verticales y las cuadradas— no entra en
+ *   ese razonamiento, y comprobarlo cambio la regla: a un bano vertical de
+ *   0,75 se le quito el canto de puerta de la derecha, la proporcion empeoro
+ *   a 0,57 y aun asi lo que ve el visitante mejora, porque el navegador ya le
+ *   estaba enseñando una banda horizontal del centro y la puerta se va de esa
+ *   banda igual. Ahi manda el tope duro.
+ */
+function topeDelBorde(borde: Borde, aspecto: number): number {
+  if (!Number.isFinite(aspecto) || aspecto <= 0) return MAXIMO_CORTE;
+  // Fuera de la franja el argumento de la proporcion no aplica: ver arriba.
+  if (aspecto < FICHA_MAS_ALTA) return MAXIMO_CORTE;
+
+  const margen =
+    borde === 'ARRIBA' || borde === 'ABAJO'
+      ? 1 - aspecto / FICHA_MAS_ANCHA // quitar alto ensancha
+      : 1 - FICHA_MAS_ALTA / aspecto; // quitar ancho estrecha
+
+  return Math.max(0, Math.min(MAXIMO_CORTE, Math.floor(margen * 100)));
+}
 
 /** Lo que la puerta de codigo ya sabe de la foto y aqui manda. */
 export interface EstadoFisico {
@@ -116,6 +183,11 @@ export interface EstadoFisico {
   pequena: boolean;
   /** No es una foto del inmueble: el logo, un plano, una captura. */
   noEsFoto: boolean;
+  /**
+   * Ancho partido por alto. Decide cuanto se puede recortar de cada borde sin
+   * que el `object-cover` de la web vuelva a recortar por su cuenta.
+   */
+  aspecto: number;
 }
 
 /**
@@ -175,7 +247,21 @@ export function resolverEncuadre(
     if (vistos.has(s.borde)) continue;
     vistos.add(s.borde);
     const medido = franjas[CLAVE[s.borde]] ?? 0;
-    cortes.push({ ...s, medido, auto: medido >= MINIMO_CONFIRMADO });
+    const tope = topeDelBorde(s.borde, estado.aspecto);
+    /*
+      Se confirma con lo MEDIDO y se aplica lo que cabe dentro del tope. Un
+      borde cuyo tope es cero —una foto que ya esta en el limite de lo que la
+      ficha admite— no puede ir a automatico por mucha franja muerta que tenga:
+      recortarla la sacaria de la franja y la web se cobraria la diferencia.
+    */
+    cortes.push({
+      ...s,
+      medido,
+      aplicable: Math.min(medido, tope),
+      auto:
+        medido >= MINIMO_CONFIRMADO &&
+        Math.min(medido, tope) >= MINIMO_APLICABLE,
+    });
   }
 
   if (!cortes.length) {
@@ -219,6 +305,6 @@ export function recorteAutomatico(encuadre: Encuadre): {
   if (!mejor) return null;
 
   const p = { arriba: 0, abajo: 0, izquierda: 0, derecha: 0 };
-  p[CLAVE[mejor.borde]] = Math.min(MAXIMO_CORTE, mejor.medido);
+  p[CLAVE[mejor.borde]] = mejor.aplicable;
   return p;
 }

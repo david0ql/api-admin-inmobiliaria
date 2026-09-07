@@ -32,6 +32,7 @@ import { huellaPrompt, ImagePromptService } from './image-prompt.service';
 import { SamplesService } from './samples.service';
 import {
   AnalyzePropertyDto,
+  RecortarImagenDto,
   CreateSamplesDto,
   ReviewPrivacyDto,
   SavePromptDto,
@@ -287,6 +288,20 @@ export class ImageAiController {
       imageIds: dto.imageIds,
       force: dto.force,
     });
+  }
+
+  @Post('images/:id/crop')
+  @ApiOperation({
+    summary: 'Recortar una foto con los cortes que alguien ha aceptado',
+    description:
+      'Los cortes van en el cuerpo y no se recalculan aqui: en la pantalla se pueden aceptar unos y otros no. Una lista vacia deshace el recorte y devuelve la foto entera. Se parte siempre del negativo, asi que no acumula y no pierde el revelado.',
+  })
+  recortar(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RecortarImagenDto,
+    @CurrentUser() actor: AuthenticatedActor,
+  ) {
+    return this.propuestas.recortar(id, dto.cortes, actor);
   }
 
   // --- el prompt ------------------------------------------------------------

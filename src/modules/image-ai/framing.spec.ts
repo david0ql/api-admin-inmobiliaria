@@ -16,10 +16,16 @@ import {
  * de discutir un umbral es saber que foto lo puso ahi.
  */
 
+/*
+  3:2, que es el 95 % del inventario. El aspecto no es decorativo: decide
+  cuanto se puede recortar de cada borde sin que el `object-cover` de la web
+  vuelva a recortar. A 1,5 el margen es del 14 % por cualquier lado.
+*/
 const sano: EstadoFisico = {
   irrecuperable: false,
   pequena: false,
   noEsFoto: false,
+  aspecto: 1.5,
 };
 const sinFranjas = { arriba: 0, abajo: 0, izquierda: 0, derecha: 0 };
 
@@ -43,11 +49,16 @@ describe('resolverEncuadre', () => {
     expect(r.cortes[0].auto).toBe(true);
     expect(r.cortes[0].porcion).toBe(15);
     expect(r.cortes[0].medido).toBe(45);
-    // Se aplica lo medido, acotado al tope de un tercio.
+    /*
+      Se confirma con los 45 medidos, pero se aplica un 14: es lo que cabe
+      quitarle de ancho a un 3:2 sin bajar de 1,29 y que el `object-cover` de
+      la ficha se cobre la diferencia recortando por arriba y por abajo.
+    */
+    expect(r.cortes[0].aplicable).toBe(14);
     expect(recorteAutomatico(r)).toEqual({
       arriba: 0,
       abajo: 0,
-      izquierda: 35,
+      izquierda: 14,
       derecha: 0,
     });
   });
@@ -152,7 +163,7 @@ describe('recorteAutomatico', () => {
       arriba: 0,
       abajo: 0,
       izquierda: 0,
-      derecha: 35,
+      derecha: 14,
     });
   });
 
@@ -165,5 +176,54 @@ describe('recorteAutomatico', () => {
 
     expect(r.via).toBe(Via.ASESOR);
     expect(recorteAutomatico(r)).toBeNull();
+  });
+});
+
+describe('el tope que pone la web al recortar', () => {
+  it('en un 3:2 deja un 14 %, que es lo que cabe sin que la ficha recorte otra vez', () => {
+    /*
+      Medido sobre una foto real: quitandole el 35 % de abajo a un 3:2 queda en
+      2,29:1, y al pintarla el `object-cover` de la ficha se lleva el 24 % del
+      ANCHO — desaparecen la pared de la izquierda y el final de la barra. Al
+      14 % la foto mejora y no se pierde un pixel de ancho.
+    */
+    const r = resolverEncuadre(
+      [corte('ABAJO', 30)],
+      { ...sinFranjas, abajo: 40 },
+      { ...sano, aspecto: 1.5 },
+    );
+
+    expect(r.cortes[0].medido).toBe(40);
+    expect(r.cortes[0].aplicable).toBe(14);
+  });
+
+  it('no recorta por arriba una foto que ya es tan apaisada como la ficha', () => {
+    // A 1,75 no queda margen: quitarle alto la sacaria de la franja.
+    const r = resolverEncuadre(
+      [corte('ABAJO', 20)],
+      { ...sinFranjas, abajo: 40 },
+      { ...sano, aspecto: 1.75 },
+    );
+
+    expect(r.cortes[0].aplicable).toBe(0);
+    expect(r.cortes[0].auto).toBe(false);
+    expect(recorteAutomatico(r)).toBeNull();
+  });
+
+  it('a una vertical le deja el tope duro, porque la proporcion ya no manda', () => {
+    /*
+      Comprobado mirandolo: al bano vertical de 0,75 se le quita el canto de
+      puerta de la derecha, la proporcion "empeora" a 0,57 y lo que ve el
+      visitante mejora igual — el navegador ya le estaba enseñando una banda
+      horizontal del centro, y la puerta se va de esa banda.
+    */
+    const r = resolverEncuadre(
+      [corte('DERECHA', 20)],
+      { ...sinFranjas, derecha: 24 },
+      { ...sano, aspecto: 0.75 },
+    );
+
+    expect(r.cortes[0].aplicable).toBe(24);
+    expect(r.cortes[0].auto).toBe(true);
   });
 });

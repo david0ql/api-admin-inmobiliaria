@@ -94,6 +94,24 @@ const VARIANTES = [
 const RAW_SUFFIX = '-r.webp';
 
 /**
+ * El recorte de una foto, en FRACCIONES de 0 a 1 y nunca en pixeles.
+ *
+ * En fracciones porque la misma decision tiene que valer para las cuatro
+ * variantes: en pixeles habria que recalcularla para 2560, 1600, 800 y 560, y
+ * el dia que cambie un ancho quedarian mal las que ya estuvieran guardadas.
+ *
+ * Se guarda en la fila de la imagen y se aplica al regenerar, igual que el
+ * revelado. Por eso recortar es reversible y no acumula: se recorta siempre
+ * sobre el negativo entero, no sobre lo ya recortado.
+ */
+export interface Caja {
+  x: number;
+  y: number;
+  ancho: number;
+  alto: number;
+}
+
+/**
  * Las dos versiones SIN revelar que se publican, para poder comparar.
  *
  * El negativo esta a 2560 px y pintar eso en una rejilla de 6.306 fotos no es
@@ -296,9 +314,18 @@ export class StorageService {
       ancho: number;
       calidad: number;
     }[] = VARIANTES,
+    caja: Caja | null = null,
   ): Promise<number> {
-    let anterior = negativo;
-    let anchoPrevio = (await sharp(negativo).metadata()).width ?? ARCHIVE_WIDTH;
+    /*
+      El recorte se aplica ANTES que nada y una sola vez, sobre el negativo.
+
+      Antes de reducir porque recortar y luego reducir conserva mas detalle que
+      al reves, y una sola vez porque de la variante mas grande heredan las
+      demas: recortarlas todas por separado seria recortar cuatro veces la
+      misma fraccion y acabar con cuatro encuadres distintos por redondeo.
+    */
+    let anterior = caja ? await recortar(negativo, caja) : negativo;
+    let anchoPrevio = (await sharp(anterior).metadata()).width ?? ARCHIVE_WIDTH;
     let total = 0;
 
     for (const [indice, variante] of variantes.entries()) {
@@ -311,7 +338,7 @@ export class StorageService {
         Asi deshacer devuelve el archivo byte a byte, y de paso se ahorra la
         pasada mas cara de las cuatro.
       */
-      if (indice === 0 && !revelado && anchoPrevio <= variante.ancho) {
+      if (indice === 0 && !revelado && !caja && anchoPrevio <= variante.ancho) {
         total += anterior.length;
         await this.escribirEntero(`${base}${variante.sufijo}`, anterior);
         continue;
@@ -377,6 +404,36 @@ export class StorageService {
       urlRaw: this.publicUrl(`${base}-rt.webp`),
       urlRawLarge: this.publicUrl(`${base}-rl.webp`),
     };
+  }
+
+  /**
+   * Recorta una foto ya guardada, o le quita el recorte.
+   *
+   * Parte del negativo y le vuelve a aplicar SU revelado, asi que recortar no
+   * pierde el revelado ni lo aplica dos veces, y recortar dos veces no acumula:
+   * la segunda caja se mide sobre la foto entera, no sobre la ya recortada. Con
+   * `caja` a null se deshace y la foto vuelve a estar completa.
+   *
+   * Es la misma mecanica que `rerevelar` y a proposito: en este modulo, toda
+   * operacion sobre una foto se guarda como una decision y se aplica
+   * regenerando desde el negativo. Una operacion que escribiera sobre el
+   * archivo publicado seria la unica que no se puede deshacer.
+   */
+  async recortar(
+    storageKey: string,
+    caja: Caja | null,
+    revelado: Revelado | null,
+  ): Promise<{ bytes: number }> {
+    const base = storageKey.replace(/-o\.webp$/, '');
+    const negativo = await this.leerNegativo(base);
+    const bytes = await this.generarVariantes(
+      base,
+      negativo,
+      revelado,
+      VARIANTES,
+      caja,
+    );
+    return { bytes };
   }
 
   /**
@@ -630,4 +687,28 @@ export class StorageService {
   static directoryOf(key: string): string {
     return dirname(key);
   }
+}
+
+/**
+ * Aplica una caja en fracciones sobre una imagen.
+ *
+ * Se redondea hacia dentro y se exige al menos un pixel por lado: una caja de
+ * 0,999 sobre una miniatura puede dar 0 de ancho al redondear, y sharp falla
+ * con un error que no dice nada. Antes de eso, la caja se acota al marco — una
+ * caja que se sale no es un error del que la manda, es aritmetica de
+ * fracciones.
+ */
+async function recortar(buffer: Buffer, caja: Caja): Promise<Buffer> {
+  const meta = await sharp(buffer).metadata();
+  const w = meta.width ?? 0;
+  const h = meta.height ?? 0;
+  if (!w || !h) return buffer;
+
+  const left = Math.min(w - 1, Math.max(0, Math.round(caja.x * w)));
+  const top = Math.min(h - 1, Math.max(0, Math.round(caja.y * h)));
+  const width = Math.max(1, Math.min(w - left, Math.round(caja.ancho * w)));
+  const height = Math.max(1, Math.min(h - top, Math.round(caja.alto * h)));
+
+  if (left === 0 && top === 0 && width === w && height === h) return buffer;
+  return sharp(buffer).extract({ left, top, width, height }).toBuffer();
 }

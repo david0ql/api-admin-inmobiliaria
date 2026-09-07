@@ -1,7 +1,23 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import type { ImageAnalysis } from './domain/image-analysis.entity';
+import { PropertyImage } from '../properties/domain/property-image.entity';
+import { StorageService, type Caja } from '../media/storage.service';
 import { ImageAnalysisService } from './image-analysis.service';
-import { MAXIMO_CORTE, Via, type Corte, type Encuadre } from './framing';
+import {
+  BORDES,
+  MAXIMO_CORTE,
+  Via,
+  type Borde,
+  type Corte,
+  type Encuadre,
+} from './framing';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
 
 /**
@@ -117,7 +133,14 @@ export class PropuestaService {
     ya comprueba la sede y la propiedad del inmueble. Un modulo que se inventa
     sus reglas de visibilidad es un agujero que nadie sabe que existe.
   */
-  constructor(private readonly analysis: ImageAnalysisService) {}
+  private readonly logger = new Logger(PropuestaService.name);
+
+  constructor(
+    private readonly analysis: ImageAnalysisService,
+    @InjectRepository(PropertyImage)
+    private readonly images: Repository<PropertyImage>,
+    private readonly storage: StorageService,
+  ) {}
 
   /**
    * Lo ya propuesto de un inmueble. No cuesta nada: solo lee.
@@ -271,4 +294,91 @@ export class PropuestaService {
       severidad: a.usable ? ('MEDIA' as const) : ('ALTA' as const),
     }));
   }
+
+  // --- aplicar el recorte ---------------------------------------------------
+
+  /**
+   * Recorta una foto con los cortes que ha aceptado una persona.
+   *
+   * Los cortes vienen EN EL CUERPO y no se recalculan aqui a partir de la
+   * propuesta guardada, y eso es deliberado: quien mira la pantalla puede
+   * aceptar unos y otros no, asi que lo que se aplica no tiene por que ser lo
+   * que se propuso. Recalcularlo aqui seria ignorar lo que la persona decidio.
+   *
+   * Una lista vacia deshace el recorte y devuelve la foto entera. No es un caso
+   * raro: es el boton de deshacer.
+   */
+  async recortar(
+    imageId: string,
+    cortes: { borde: Borde; porcion: number }[],
+    actor: AuthenticatedActor,
+  ): Promise<PropertyImage> {
+    const image = await this.images.findOne({ where: { id: imageId } });
+    if (!image) throw new NotFoundException('Imagen no encontrada');
+
+    // Las mismas comprobaciones de sede y propiedad que para analizar: quien no
+    // puede tocar el inmueble tampoco recorta sus fotos.
+    await this.analysis.assertPuedeTocar(image.propertyId, actor);
+
+    const caja = cajaDeCortes(cortes);
+    const { bytes } = await this.storage.recortar(
+      image.storageKey,
+      caja,
+      image.develop,
+    );
+
+    await this.images.update({ id: imageId }, { crop: caja, bytes });
+    this.logger.log(
+      caja
+        ? `${actor.id} recorta ${imageId}: ${JSON.stringify(caja)}`
+        : `${actor.id} deshace el recorte de ${imageId}`,
+    );
+    return (await this.images.findOne({ where: { id: imageId } }))!;
+  }
+}
+
+/**
+ * Traduce los cortes por borde a la caja en fracciones que entiende el
+ * almacenamiento.
+ *
+ * Acota cada borde al tope duro y comprueba que quede foto: dos cortes
+ * opuestos del 35 % dejan un 30 % del ancho, y eso ya no es un recorte. El tope
+ * de proporcion que se aplica al proponer NO se repite aqui a proposito — quien
+ * llama es una persona que esta viendo la previsualizacion, y el sistema no
+ * tiene por que discutirle un encuadre que esta mirando. Lo que si se impide es
+ * destruir la foto por un dedo en el teclado.
+ */
+export function cajaDeCortes(
+  cortes: { borde: Borde; porcion: number }[],
+): Caja | null {
+  const p: Record<Borde, number> = {
+    ARRIBA: 0,
+    ABAJO: 0,
+    IZQUIERDA: 0,
+    DERECHA: 0,
+  };
+  for (const c of cortes) {
+    if (!(BORDES as readonly string[]).includes(c.borde)) continue;
+    const n = Number(c.porcion);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    // El mayor gana si el borde viene repetido, en vez de sumarlos: sumar dos
+    // entradas del mismo borde es como se recorta media foto sin querer.
+    p[c.borde] = Math.max(p[c.borde], Math.min(MAXIMO_CORTE, n));
+  }
+
+  const ancho = 1 - (p.IZQUIERDA + p.DERECHA) / 100;
+  const alto = 1 - (p.ARRIBA + p.ABAJO) / 100;
+  if (ancho >= 1 && alto >= 1) return null;
+  if (ancho < 0.4 || alto < 0.4) {
+    throw new BadRequestException(
+      'Ese recorte se lleva mas de la mitad de la foto por un lado. Si hace falta quitar tanto, la foto hay que repetirla, no recortarla.',
+    );
+  }
+
+  return {
+    x: p.IZQUIERDA / 100,
+    y: p.ARRIBA / 100,
+    ancho,
+    alto,
+  };
 }

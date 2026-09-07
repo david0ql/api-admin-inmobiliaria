@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsIn,
+  ValidateNested,
   IsBoolean,
   IsInt,
   IsObject,
@@ -35,6 +38,34 @@ export class AnalyzePropertyDto {
   @IsOptional()
   @IsBoolean()
   force?: boolean;
+}
+
+/** Un borde y cuanto se le quita, en porcentaje. */
+export class CorteDto {
+  @ApiProperty({ enum: ['ARRIBA', 'ABAJO', 'IZQUIERDA', 'DERECHA'] })
+  @IsIn(['ARRIBA', 'ABAJO', 'IZQUIERDA', 'DERECHA'])
+  borde: 'ARRIBA' | 'ABAJO' | 'IZQUIERDA' | 'DERECHA';
+
+  @ApiProperty({ minimum: 1, maximum: 35 })
+  @IsInt()
+  @Min(1)
+  @Max(35)
+  porcion: number;
+}
+
+export class RecortarImagenDto {
+  /**
+   * Los cortes que una persona ha aceptado, que no tienen por que ser los que
+   * se propusieron: en la pantalla se pueden aceptar unos y otros no.
+   *
+   * La lista vacia es el boton de deshacer, y por eso no se exige que tenga
+   * elementos.
+   */
+  @ApiProperty({ type: [CorteDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CorteDto)
+  cortes: CorteDto[];
 }
 
 export class SavePromptDto {

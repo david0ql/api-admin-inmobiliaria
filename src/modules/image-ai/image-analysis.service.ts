@@ -563,6 +563,21 @@ export class ImageAnalysisService {
     return (await this.analyses.findOne({ where: { id: analysisId } }))!;
   }
 
+  /**
+   * Comprueba que este actor puede tocar las fotos de este inmueble.
+   *
+   * Publico para que `PropuestaService` use ESTA comprobacion y no se invente
+   * la suya. Un modulo que se escribe sus propias reglas de visibilidad es un
+   * agujero que nadie sabe que existe, y el recorte escribe sobre la foto de la
+   * casa de un cliente.
+   */
+  async assertPuedeTocar(
+    propertyId: string,
+    actor: AuthenticatedActor,
+  ): Promise<void> {
+    await this.propertyForActor(propertyId, actor);
+  }
+
   // --- piezas ---------------------------------------------------------------
 
   /**
@@ -863,6 +878,16 @@ export class ImageAnalysisService {
           m.sharpness < reglas.minSharpness),
       ),
       pequena: Boolean(m && m.width < reglas.minWidth),
+      /*
+        El aspecto sale de lo medido; si no se pudo medir, de la fila de la
+        imagen. Decide cuanto se puede recortar sin que la web vuelva a
+        recortar por su cuenta.
+      */
+      aspecto:
+        m?.aspectRatio ??
+        (cargada.image.width && cargada.image.height
+          ? cargada.image.width / cargada.image.height
+          : 0),
       /*
         Que no sea una foto del inmueble lo decide el modelo, porque es lo unico
         de los tres que hay que MIRAR: el logo sobre fondo liso, un plano o una
