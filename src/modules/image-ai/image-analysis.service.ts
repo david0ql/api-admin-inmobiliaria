@@ -503,7 +503,20 @@ export class ImageAnalysisService {
         propertyId,
         batchId: ctx.batchId,
         suggestedOrder: orden,
-        coverImageId: aId(album.coverIndex) ?? orden[0] ?? null,
+        /*
+          La portada es la PRIMERA del orden, y no lo que diga `coverIndex`.
+
+          El prompt le pide al modelo que las dos cosas coincidan, y en 2 de
+          cada 10 albumes medidos no coincidian: la ficha enseñaba una portada y
+          ordenaba por otra. Apretar el prompt lo bajo a 1 de 10, no a 0, y es
+          la tercera vez en este modulo que pasa lo mismo — mantener dos campos
+          coherentes entre si no es tarea de un modelo de lenguaje, es una
+          asignacion. Se deriva y deja de haber contradiccion posible.
+
+          `coverIndex` se sigue aceptando en la respuesta y sirve de reserva
+          para el caso de que el orden venga vacio.
+        */
+        coverImageId: orden[0] ?? aId(album.coverIndex) ?? null,
         missing: this.calcularQueFalta(ctx.property, ctx.rooms),
         summary: album.summary || null,
         promptVersion: ctx.promptVersion,
