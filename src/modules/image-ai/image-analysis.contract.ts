@@ -171,6 +171,35 @@ export type AlbumJudgement = z.infer<typeof albumJudgementSchema>;
 export type AnalysisResponse = z.infer<typeof analysisResponseSchema>;
 
 /**
+ * Casa los juicios que devolvio el modelo con las fotos que se le mandaron.
+ *
+ * Existe porque el modelo NO devuelve fiablemente una entrada por imagen. Sobre
+ * 50 llamadas reales, con tandas de 15 o 16 fotos se equivoca en el numero el
+ * 47 % de las veces: unas inventa una entrada de mas y otras trunca en seco,
+ * contestando doce juicios para quince fotos. El JSON es valido y no hay error.
+ *
+ * Casar por posicion en la lista seria creerse ese numero. Se casa por el
+ * `index` que el propio modelo declara, se tira lo que cae fuera del tramo
+ * enviado —una entrada 15 en una tanda de 12 no describe ninguna foto real, y
+ * guardarla seria inventarse un juicio— y quien llama comprueba despues que
+ * estan todas.
+ *
+ * `enviadas` es cuantas fotos iban en la tanda, no cuantas contesto.
+ */
+export function casarPorIndice(
+  juicios: ImageJudgement[],
+  enviadas: number,
+): Map<number, ImageJudgement> {
+  const mapa = new Map<number, ImageJudgement>();
+  for (const juicio of juicios) {
+    if (juicio.index < 0 || juicio.index >= enviadas) continue;
+    // El primero gana: si repite un indice, la segunda entrada es ruido.
+    if (!mapa.has(juicio.index)) mapa.set(juicio.index, juicio);
+  }
+  return mapa;
+}
+
+/**
  * Saca el objeto de lo que devolvio el modelo.
  *
  * Con `response_format: json_object` deberia venir JSON limpio, pero los

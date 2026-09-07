@@ -22,7 +22,10 @@ import type { AuthenticatedActor } from '../../shared/request-context/request-co
 import { ImageAnalysis } from './domain/image-analysis.entity';
 import { ImageAlbumAnalysis } from './domain/image-album-analysis.entity';
 import { huellaPrompt, ImagePromptService } from './image-prompt.service';
-import { parseAnalysisResponse } from './image-analysis.contract';
+import {
+  casarPorIndice,
+  parseAnalysisResponse,
+} from './image-analysis.contract';
 import type {
   AlbumJudgement,
   AnalysisResponse,
@@ -62,6 +65,12 @@ const IMPRESCINDIBLES_SUELO: readonly RoomKind[] = [
   RoomKind.FACADE,
   RoomKind.EXTERIOR,
 ];
+
+/** Una imagen del inmueble con su fichero ya leido de disco. */
+interface Cargada {
+  image: PropertyImage;
+  buffer: Buffer;
+}
 
 /**
  * Una fila de `image_analysis` a punto de escribirse: solo columnas.
@@ -198,6 +207,12 @@ export class ImageAnalysisService {
     skipped: number;
     album: ImageAlbumAnalysis | null;
     usage: { inputTokens: number; outputTokens: number } | null;
+    /**
+     * Las fotos que el modelo no juzgo ni siquiera tras repetirselas. Va en la
+     * respuesta para que la pantalla pueda decir la verdad: "analizadas 12 de
+     * 15" en lugar de "analizadas 15".
+     */
+    unanalyzed: { id: string; url: string }[];
   }> {
     if (!this.available) {
       throw new ServiceUnavailableException(
@@ -248,6 +263,7 @@ export class ImageAnalysisService {
           order: { createdAt: 'DESC' },
         }),
         usage: null,
+        unanalyzed: [],
       };
     }
 
@@ -265,11 +281,168 @@ export class ImageAnalysisService {
       );
     }
 
+    const batchId = randomUUID();
+    const promptHash = huellaPrompt(prompt.body);
+
+    /*
+      Se trocea, y esto NO es una optimizacion: es correccion.
+
+      Medido sobre 50 llamadas reales, con lotes de 15 o 16 fotos el modelo
+      devuelve un numero de entradas equivocado el 47 % de las veces — unas
+      inventa una de mas y otras trunca en seco, contestando doce juicios para
+      quince fotos. El JSON es valido, no hay error y el validador lo acepta;
+      como se casa por indice, las fotos que faltan no se analizan y nadie se
+      entera. Hasta doce fotos el fallo baja al 3 %.
+
+      Y no se arregla en el prompt: ya se le pide ahi una entrada por imagen y
+      lo incumple igual. Contar entradas es aritmetica, no juicio.
+    */
+    const tandas: Cargada[][] = [];
+    for (let i = 0; i < cargadas.length; i += this.config.imageAi.chunkSize) {
+      tandas.push(cargadas.slice(i, i + this.config.imageAi.chunkSize));
+    }
+
+    const emparejados: { cargada: Cargada; juicio: ImageJudgement }[] = [];
+    /*
+      Cada tanda devuelve su propio juicio de conjunto, con indices LOCALES a
+      esa tanda. Se guarda junto a las fotos que la formaban porque sin ellas
+      esos indices no significan nada.
+    */
+    const albumes: { tanda: Cargada[]; album: AlbumJudgement }[] = [];
+    const sinAnalizar: Cargada[] = [];
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let modelo = model;
+
+    for (const tanda of tandas) {
+      const r = await this.preguntarTanda(property, tanda, prompt.body, model);
+      inputTokens += r.usage?.inputTokens ?? 0;
+      outputTokens += r.usage?.outputTokens ?? 0;
+      modelo = r.model;
+      if (r.album) albumes.push({ tanda, album: r.album });
+
+      const faltan: Cargada[] = [];
+      tanda.forEach((cargada, i) => {
+        const juicio = r.juicios.get(i);
+        if (juicio) emparejados.push({ cargada, juicio });
+        else faltan.push(cargada);
+      });
+
+      /*
+        Lo que no volvio se vuelve a pedir, una vez y solo eso.
+
+        Reintentar sale barato —una foto suelta cuesta lo que costaba dentro del
+        lote— y arregla el caso comun, que es el truncado. Una sola vez porque
+        si el modelo no quiere ver una foto concreta, insistir es pagar lo mismo
+        por el mismo silencio; a la segunda se dice que quedo sin analizar, que
+        es lo unico que no se podia hacer antes.
+      */
+      if (faltan.length) {
+        this.logger.warn(
+          `${property.code}: el modelo devolvio ${r.juicios.size} juicios para ${tanda.length} fotos; se repiten ${faltan.length}`,
+        );
+        const reintento = await this.preguntarTanda(
+          property,
+          faltan,
+          prompt.body,
+          model,
+        );
+        inputTokens += reintento.usage?.inputTokens ?? 0;
+        outputTokens += reintento.usage?.outputTokens ?? 0;
+        faltan.forEach((cargada, i) => {
+          const juicio = reintento.juicios.get(i);
+          if (juicio) emparejados.push({ cargada, juicio });
+          else sinAnalizar.push(cargada);
+        });
+      }
+    }
+
+    if (!emparejados.length) {
+      throw new ServiceUnavailableException(
+        'El modelo no devolvio ningun juicio utilizable. Vuelve a intentarlo; si se repite, revisa el prompt.',
+      );
+    }
+
+    const analyzed = await this.guardar(emparejados, {
+      batchId,
+      promptVersion: prompt.version,
+      promptHash,
+      model: modelo,
+      actor,
+    });
+
+    const album = albumes.length
+      ? await this.guardarAlbum(propertyId, emparejados, albumes, {
+          batchId,
+          promptVersion: prompt.version,
+          promptHash,
+          model: modelo,
+          actor,
+          property,
+          rooms: analyzed.map((a) => a.room),
+        })
+      : null;
+
+    /*
+      Lo que quedo sin analizar SE DICE, no se calla.
+
+      Es el punto entero de este cambio: una pantalla que promete "analizadas
+      15" cuando el modelo contesto por 12 es peor que no tener la funcion,
+      porque el asesor cree que alguien miro esas tres fotos. Y la que se cayo
+      puede ser justo la que llevaba una cara en la calle.
+    */
+    if (sinAnalizar.length) {
+      this.logger.error(
+        `${property.code}: ${sinAnalizar.length} fotos quedaron sin analizar tras el reintento`,
+      );
+    }
+
+    this.logger.log(
+      `Analizadas ${analyzed.length} de ${cargadas.length} fotos de ${property.code} en ${tandas.length} tanda(s) (prompt v${prompt.version}, ${modelo}, ${inputTokens} tokens de entrada)`,
+    );
+
+    return {
+      batchId,
+      analyzed,
+      skipped,
+      album,
+      usage: { inputTokens, outputTokens },
+      unanalyzed: sinAnalizar.map((c) => ({
+        id: c.image.id,
+        url: c.image.url,
+      })),
+    };
+  }
+
+  /**
+   * Una llamada al modelo con un pu\u00f1ado de fotos, y lo que devuelve casado por
+   * indice.
+   *
+   * Devuelve un mapa y no una lista a proposito: lo que interesa de la respuesta
+   * es "¿hay juicio para la foto numero 3?", y un mapa contesta eso sin que
+   * nadie tenga que confiar en que vengan tantas entradas como fotos — que es
+   * justo lo que el modelo incumple.
+   *
+   * Los indices que se salen del tramo enviado se descartan aqui: cuando el
+   * modelo inventa una entrada 15 en una tanda de 12, esa entrada no describe
+   * ninguna foto real y guardarla seria inventarse un juicio.
+   */
+  private async preguntarTanda(
+    property: Property,
+    tanda: Cargada[],
+    system: string,
+    model: string,
+  ): Promise<{
+    juicios: Map<number, ImageJudgement>;
+    album: AlbumJudgement | null;
+    usage: { inputTokens: number; outputTokens: number } | null;
+    model: string;
+  }> {
     const respuesta = await this.provider.seeJson({
       model,
-      system: prompt.body,
-      user: this.contexto(property, cargadas),
-      images: cargadas.map((c): VisionImage => ({
+      system,
+      user: this.contexto(property, tanda),
+      images: tanda.map((c): VisionImage => ({
         mimeType: 'image/webp',
         data: c.buffer,
         detail: this.config.imageAi.detail,
@@ -289,33 +462,12 @@ export class ImageAnalysisService {
       );
     }
 
-    const batchId = randomUUID();
-    // La huella del texto EXACTO que se mando, calculada una vez por lote.
-    const promptHash = huellaPrompt(prompt.body);
-    const analyzed = await this.guardar(cargadas, parsed.images, {
-      batchId,
-      promptVersion: prompt.version,
-      promptHash,
+    return {
+      juicios: casarPorIndice(parsed.images, tanda.length),
+      album: parsed.album ?? null,
+      usage: respuesta.usage,
       model: respuesta.model,
-      actor,
-    });
-    const album = parsed.album
-      ? await this.guardarAlbum(propertyId, cargadas, parsed.album, {
-          batchId,
-          promptVersion: prompt.version,
-          promptHash,
-          model: respuesta.model,
-          actor,
-          property,
-          rooms: analyzed.map((a) => a.room),
-        })
-      : null;
-
-    this.logger.log(
-      `Analizadas ${analyzed.length} fotos de ${property.code} (prompt v${prompt.version}, ${respuesta.model}, ${respuesta.usage?.inputTokens ?? '?'} tokens de entrada)`,
-    );
-
-    return { batchId, analyzed, skipped, album, usage: respuesta.usage };
+    };
   }
 
   /**
@@ -392,10 +544,8 @@ export class ImageAnalysisService {
   }
 
   /** Lee de disco las variantes de 800 px. Lo que falte se salta. */
-  private async cargar(
-    imagenes: PropertyImage[],
-  ): Promise<{ image: PropertyImage; buffer: Buffer }[]> {
-    const salida: { image: PropertyImage; buffer: Buffer }[] = [];
+  private async cargar(imagenes: PropertyImage[]): Promise<Cargada[]> {
+    const salida: Cargada[] = [];
     for (const image of imagenes) {
       const key = image.storageKey.replace(/-o\.webp$/, VARIANTE);
       try {
@@ -419,10 +569,7 @@ export class ImageAnalysisService {
    * orientacion— para que no gaste su atencion en adivinarlas y para que no
    * contradiga a la puerta de codigo delante del asesor.
    */
-  private contexto(
-    property: Property,
-    cargadas: { image: PropertyImage; buffer: Buffer }[],
-  ): string {
+  private contexto(property: Property, cargadas: Cargada[]): string {
     const ficha = [
       `Inmueble ${property.code}: ${property.title}`,
       property.bedrooms ? `${property.bedrooms} alcobas` : null,
@@ -466,8 +613,7 @@ export class ImageAnalysisService {
    * cambio del prompt mejoro o empeoro.
    */
   private async guardar(
-    cargadas: { image: PropertyImage; buffer: Buffer }[],
-    juicios: ImageJudgement[],
+    emparejados: { cargada: Cargada; juicio: ImageJudgement }[],
     ctx: {
       batchId: string;
       promptVersion: number;
@@ -489,12 +635,12 @@ export class ImageAnalysisService {
     */
     const filas: FilaAnalisis[] = [];
 
-    for (const juicio of juicios) {
-      const cargada = cargadas[juicio.index];
-      // Un indice que no existe significa que el modelo se invento una foto:
-      // se ignora en vez de guardar un juicio sin dueño.
-      if (!cargada) continue;
-
+    /*
+      Llegan ya casados. El emparejado por indice se hace en `preguntarTanda`,
+      que es donde se sabe cuantas fotos se enviaron: aqui ya no hay forma de
+      guardar un juicio sin dueño.
+    */
+    for (const { cargada, juicio } of emparejados) {
       filas.push({
         propertyImageId: cargada.image.id,
         propertyId: cargada.image.propertyId,
@@ -542,8 +688,8 @@ export class ImageAnalysisService {
   /** Guarda el juicio del conjunto, traduciendo indices del lote a ids. */
   private async guardarAlbum(
     propertyId: string,
-    cargadas: { image: PropertyImage; buffer: Buffer }[],
-    album: AlbumJudgement,
+    emparejados: { cargada: Cargada; juicio: ImageJudgement }[],
+    albumes: { tanda: Cargada[]; album: AlbumJudgement }[],
     ctx: {
       batchId: string;
       promptVersion: number;
@@ -555,46 +701,72 @@ export class ImageAnalysisService {
       rooms: RoomKind[];
     },
   ): Promise<ImageAlbumAnalysis> {
-    const aId = (i: number) => cargadas[i]?.image.id ?? null;
+    /*
+      El orden, cosido de los ordenes de cada tanda.
 
-    // Sin repetidos y sin inventados: el orden que se guarda tiene que poder
-    // aplicarse tal cual a la galeria.
+      Cada juicio de conjunto ordena SU tanda, y las tandas van en el orden en
+      que estaban las fotos, asi que concatenarlas da un recorrido coherente.
+      Lo que ninguna tanda puede hacer es comparar una foto suya con otra de la
+      tanda de al lado; para eso esta el `coverScore`, que si es comparable
+      porque es una nota, no una posicion.
+    */
     const vistos = new Set<string>();
     const orden: string[] = [];
-    for (const i of album.suggestedOrder) {
-      const id = aId(i);
-      if (id && !vistos.has(id)) {
-        vistos.add(id);
-        orden.push(id);
+    for (const { tanda, album } of albumes) {
+      for (const i of album.suggestedOrder) {
+        const id = tanda[i]?.image.id;
+        if (id && !vistos.has(id)) {
+          vistos.add(id);
+          orden.push(id);
+        }
       }
     }
-    // Lo que el modelo se dejo fuera va al final, en el orden que ya tenia: una
+    // Lo que ninguna tanda coloco va al final, en el orden que ya tenia: una
     // sugerencia de orden que pierde fotos no se puede aplicar.
-    for (const c of cargadas) {
-      if (!vistos.has(c.image.id)) orden.push(c.image.id);
+    for (const { cargada } of emparejados) {
+      if (!vistos.has(cargada.image.id)) orden.push(cargada.image.id);
     }
+
+    /*
+      La portada es la mejor nota de portada de TODO el inmueble, y se pone la
+      primera del orden.
+
+      Antes se tomaba la primera del orden y ya, que con una sola llamada era lo
+      mismo. Troceando deja de serlo: la primera del orden es la mejor de la
+      primera tanda, y la fachada puede haber caido en la segunda. Comparar
+      notas entre tandas si se puede hacer aqui —son numeros— y es justo lo que
+      el modelo no podia hacer al no ver las fotos juntas.
+
+      Al moverla al frente, `orden[0]` y la portada siguen siendo la misma cosa
+      por construccion, que era el motivo de derivarla en codigo.
+    */
+    const mejor = emparejados.reduce<{ id: string; nota: number } | null>(
+      (actual, { cargada, juicio }) =>
+        !actual || juicio.coverScore > actual.nota
+          ? { id: cargada.image.id, nota: juicio.coverScore }
+          : actual,
+      null,
+    );
+    if (mejor) {
+      const i = orden.indexOf(mejor.id);
+      if (i > 0) orden.splice(i, 1);
+      if (i !== 0) orden.unshift(mejor.id);
+    }
+
+    const summary = albumes
+      .map((a) => a.album.summary)
+      .filter(Boolean)
+      .join(' ')
+      .slice(0, 2000);
 
     return this.albums.save(
       this.albums.create({
         propertyId,
         batchId: ctx.batchId,
         suggestedOrder: orden,
-        /*
-          La portada es la PRIMERA del orden, y no lo que diga `coverIndex`.
-
-          El prompt le pide al modelo que las dos cosas coincidan, y en 2 de
-          cada 10 albumes medidos no coincidian: la ficha enseñaba una portada y
-          ordenaba por otra. Apretar el prompt lo bajo a 1 de 10, no a 0, y es
-          la tercera vez en este modulo que pasa lo mismo — mantener dos campos
-          coherentes entre si no es tarea de un modelo de lenguaje, es una
-          asignacion. Se deriva y deja de haber contradiccion posible.
-
-          `coverIndex` se sigue aceptando en la respuesta y sirve de reserva
-          para el caso de que el orden venga vacio.
-        */
-        coverImageId: orden[0] ?? aId(album.coverIndex) ?? null,
+        coverImageId: orden[0] ?? null,
         missing: this.calcularQueFalta(ctx.property, ctx.rooms),
-        summary: album.summary || null,
+        summary: summary || null,
         promptVersion: ctx.promptVersion,
         promptHash: ctx.promptHash,
         model: ctx.model,

@@ -1,4 +1,7 @@
-import { parseAnalysisResponse } from './image-analysis.contract';
+import {
+  casarPorIndice,
+  parseAnalysisResponse,
+} from './image-analysis.contract';
 import { RoomKind } from './domain/image-analysis.enums';
 
 /**
@@ -17,6 +20,57 @@ import { RoomKind } from './domain/image-analysis.enums';
  * Por eso estas pruebas van sobre la forma, no sobre valores concretos: lo que
  * se protege es la promesa de que ninguna respuesta razonable se pierde.
  */
+/**
+ * El fallo mas caro que tuvo este modulo, y el unico que no dejaba rastro.
+ *
+ * El modelo no devuelve fiablemente una entrada por imagen: medido sobre 50
+ * llamadas reales, con tandas de 15 o 16 fotos se equivoca el 47 % de las veces
+ * — unas inventa una entrada de mas y otras trunca en seco, contestando doce
+ * juicios para quince fotos. El JSON es valido y no hay error.
+ *
+ * Antes se casaba por posicion, o sea creyendose ese numero, y las fotos que
+ * faltaban no se analizaban sin que nadie se enterara. En el album donde se
+ * cazo, la foto que se quedo fuera llevaba gente reconocible en la calle: la
+ * revision de privacidad no fallo, es que nunca llego a mirarla.
+ */
+describe('casarPorIndice', () => {
+  const juicio = (index: number) => ({ index }) as never;
+
+  it('trunca en seco: 12 juicios para 15 fotos deja 3 sin casar', () => {
+    const mapa = casarPorIndice(
+      Array.from({ length: 12 }, (_, i) => juicio(i)),
+      15,
+    );
+    expect(mapa.size).toBe(12);
+    // Y las tres que faltan se pueden nombrar, que es lo que antes no se podia.
+    const faltan = [12, 13, 14].filter((i) => !mapa.has(i));
+    expect(faltan).toEqual([12, 13, 14]);
+  });
+
+  it('descarta la entrada inventada que no corresponde a ninguna foto', () => {
+    const mapa = casarPorIndice([juicio(0), juicio(1), juicio(15)], 2);
+    expect([...mapa.keys()]).toEqual([0, 1]);
+  });
+
+  it('con un indice repetido se queda con el primero', () => {
+    const a = { index: 1, quality: 10 } as never;
+    const b = { index: 1, quality: 90 } as never;
+    expect(casarPorIndice([a, b], 3).get(1)).toBe(a);
+  });
+
+  it('casa por el indice declarado, no por la posicion en la lista', () => {
+    // El modelo contesta desordenado: la foto 2 primero y la 0 despues.
+    const mapa = casarPorIndice([juicio(2), juicio(0)], 3);
+    expect(mapa.get(0)).toBeDefined();
+    expect(mapa.get(2)).toBeDefined();
+    expect(mapa.has(1)).toBe(false);
+  });
+
+  it('un indice negativo no entra', () => {
+    expect(casarPorIndice([juicio(-1)], 3).size).toBe(0);
+  });
+});
+
 describe('parseAnalysisResponse', () => {
   const imagenMinima = { index: 0 };
 

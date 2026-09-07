@@ -146,6 +146,7 @@ export class AppConfigService {
         this.get('IMAGE_AI_ENABLED') && Boolean(this.get('OPENAI_API_KEY')),
       model: this.get('IMAGE_AI_MODEL'),
       maxImages: this.get('IMAGE_AI_MAX_IMAGES'),
+      chunkSize: this.get('IMAGE_AI_CHUNK_SIZE'),
       detail: this.get('IMAGE_AI_DETAIL'),
       maxOutputTokens: this.get('IMAGE_AI_MAX_OUTPUT_TOKENS'),
     };
