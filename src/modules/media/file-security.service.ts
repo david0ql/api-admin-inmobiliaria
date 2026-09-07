@@ -124,16 +124,26 @@ const PDF_DANGEROUS = [
  * poliglota valido tiene que llevarlas al principio para funcionar.
  */
 const SHELL_MARKERS = [
-  '#!/',
   '<?php',
   '<%',
   '<script',
   '<svg',
   '<!doctype html',
   '<html',
-  'MZ',
-  'ELF',
 ];
+
+/*
+  Estas tres NO se pueden buscar por dentro: son firmas de cabecera y solo
+  significan algo en el byte cero. 'MZ' son dos letras y 'ELF' tres, asi que
+  aparecen por casualidad en los datos comprimidos de cualquier imagen grande.
+
+  Buscandolas en los primeros 2 KB, esta comprobacion rechazaba imagenes
+  legitimas diciendo que mezclaban codigo ejecutable. Paso de verdad: una
+  imagen devuelta por el proveedor de retoque, ya pagada, se tiro por esto. Un
+  filtro que rechaza al azar acaba desactivado por quien no aguanta los falsos
+  positivos, y entonces no protege de nada.
+*/
+const MAGIC_MARKERS = ['MZ', 'ELF', '#!/'];
 
 @Injectable()
 export class FileSecurityService {
@@ -177,6 +187,15 @@ export class FileSecurityService {
 
     // Un poliglota es un fichero valido en dos formatos a la vez: pasa la firma
     // de imagen y aun asi el navegador lo interpreta como HTML si se sirve mal.
+    const cabecera = buffer.subarray(0, 8).toString('latin1');
+    for (const magic of MAGIC_MARKERS) {
+      if (cabecera.startsWith(magic)) {
+        throw new BadRequestException(
+          `"${safeName}" mezcla codigo ejecutable con datos de imagen y se ha rechazado`,
+        );
+      }
+    }
+
     const head = buffer.subarray(0, 2048).toString('latin1').toLowerCase();
     for (const marker of SHELL_MARKERS) {
       if (head.includes(marker.toLowerCase())) {
