@@ -19,7 +19,6 @@ import { ImageAiController } from './image-ai.controller';
   superficie minima de UNA pantalla, con los nombres que esa pantalla ya tenia
   escritos, y no los terminos del modulo entero.
 */
-import { RetouchPanelController } from './retouch-panel.controller';
 
 /**
  * Calidad de las fotos de un inmueble: primero el codigo, luego la IA.
@@ -60,7 +59,7 @@ import { RetouchPanelController } from './retouch-panel.controller';
     ]),
     MediaModule,
   ],
-  controllers: [ImageAiController, RetouchPanelController],
+  controllers: [ImageAiController],
   providers: [
     ImagePromptService,
     ImageAnalysisService,

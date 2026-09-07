@@ -154,8 +154,17 @@ export class ImageRetouchService {
    */
   get costes() {
     return {
-      retoqueUsd: COSTE_ORIENTATIVO_USD[this.config.retouch.quality] ?? null,
-      analisisUsd: COSTE_ANALISIS_USD,
+      /*
+        Se llaman igual que en `/retouch/preview`, que es el otro sitio donde
+        salen. Un mismo numero con dos nombres segun el endpoint obliga a quien
+        pinta la pantalla a acordarse de cual toca, y ahi es donde se pierde:
+        el panel leia `costeAnalisisUsd` de aqui y aqui se publicaba
+        `analisisUsd`, asi que la frase con el multiplicador no se encendia
+        nunca y nadie veia un error — solo faltaba media frase.
+      */
+      costeOrientativoUsd:
+        COSTE_ORIENTATIVO_USD[this.config.retouch.quality] ?? null,
+      costeAnalisisUsd: COSTE_ANALISIS_USD,
       moneda: 'USD',
     };
   }
@@ -168,27 +177,6 @@ export class ImageRetouchService {
    * asesor escribe, en vez de despues de cobrarle. Una advertencia que llega
    * despues del cobro no es una advertencia, es un recibo.
    */
-  /**
-   * Lo mismo que `costes`, con la forma que espera el panel de retoque.
-   *
-   * Los dos endpoints publican las mismas cifras y las sacan del mismo sitio a
-   * proposito: son dos superficies distintas —el modulo de imagenes completo y
-   * la pantalla de retoque— y el dia que el precio cambie tiene que cambiar en
-   * las dos a la vez o una de ellas mentira sin que nada avise.
-   */
-  estadoParaPanel() {
-    const { enabled, quality, model } = this.config.retouch;
-    const { retoqueUsd, analisisUsd, moneda } = this.costes;
-    return {
-      enabled,
-      coste: retoqueUsd,
-      moneda,
-      costeAnalisis: analisisUsd,
-      model,
-      quality,
-    };
-  }
-
   previsualizar(instruccion: string) {
     const veredicto = clasificarInstruccion(instruccion);
     const { quality, model } = this.config.retouch;
