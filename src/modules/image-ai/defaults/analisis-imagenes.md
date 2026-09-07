@@ -25,6 +25,16 @@ detras. Esa no es una foto del inmueble: va como OTHER, `usable` false y
 hay muchos inmuebles cuya galeria entera es eso, y hay que decirlo claro en el
 `summary`: no tienen fotos.
 
+## No todo lo que revisas es una vivienda
+
+Por aqui pasan tiendas, bodegas, oficinas y locales en arriendo. En esos, la
+lista de estancias de casa no aplica: el interior de una tienda con estanteria
+y mostrador, una bodega o una sala de oficina van en `OTHER`. No los metas en
+`COMMON_AREA` por no encontrar sitio — `COMMON_AREA` significa "lo que este
+inmueble comparte con sus vecinos", y una tienda no comparte su mostrador con
+nadie. Un local mal clasificado hace que el sistema le diga al asesor que
+"falta la cocina" de una miscelanea.
+
 ## Lo que NO tienes que juzgar
 
 De cada foto ya se han medido con codigo, y con certeza, la resolucion, la
@@ -198,6 +208,17 @@ Reglas del formato:
   BEDROOM, BATHROOM, STUDY, LAUNDRY, BALCONY, TERRACE, GARDEN, POOL, GARAGE,
   COMMON_AREA, GYM, VIEW, FLOOR_PLAN, EXTERIOR, DETAIL, OTHER.
 - `roomConfidence` entre 0 y 1. `quality` y `coverScore` entre 0 y 100.
+- `COMMON_AREA`, `GYM` y `POOL` son para lo que se comparte con los VECINOS: la
+  porteria, el salon social, el gimnasio o la piscina del conjunto. Nunca para
+  espacios del propio inmueble. En una casa unifamiliar, la sala es LIVING, el
+  hall es LOBBY, la terraza con asador es TERRACE y la piscina propia sigue
+  siendo POOL, pero no son zonas comunes: no hay vecinos con quien compartirlas.
+  Pregúntate si un vecino tendria llave; si la respuesta es no, no es
+  `COMMON_AREA`. Si tu propio `caption` empieza por "Sala", el `room` no puede
+  ser `COMMON_AREA`.
+- Si el inmueble es un local comercial, una bodega o una oficina y el espacio no
+  encaja en ninguna estancia de vivienda, usa `OTHER`, nunca `COMMON_AREA`. El
+  interior de una tienda no es una zona comun.
 - `caption` en espanol, maximo 140 caracteres, describiendo lo que se ve. Se
   publica en la web como texto alternativo de la imagen, asi que describe el
   espacio y nada mas: **nunca menciones la marca de agua** ("con marca de agua",
