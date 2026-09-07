@@ -110,6 +110,12 @@ export class ImageAiController {
       */
       retouch: {
         enabled: this.retouch.available,
+        /*
+          Lo que cuesta, y lo que cuesta lo otro. El panel pinta "0,245 USD,
+          unas N veces lo que cuesta analizarla", y sin el segundo numero la
+          cifra sola no le dice nada a un asesor: no sabe si es cara.
+        */
+        ...this.retouch.costes,
         kinds: Object.entries(RETOUCH_KIND_LABEL).map(([value, label]) => ({
           value,
           label,

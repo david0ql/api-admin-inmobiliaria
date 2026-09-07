@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { BaseEntity } from '../../../shared/database/base.entity';
 import { PropertyImage } from '../../properties/domain/property-image.entity';
+import type { Revelado } from '../../media/image-develop.service';
 import { RetouchKind, RetouchStatus } from './image-retouch.enums';
 
 /**
@@ -216,4 +217,23 @@ export interface InstantaneaImagen {
   height: number | null;
   bytes: number | null;
   checksum: string | null;
+  /*
+    El revelado tambien se congela, y no es un adorno.
+
+    Desde que `StorageService` revela toda foto que entra, una fila de imagen
+    dice dos cosas a la vez: donde estan los ficheros y con que revelado se
+    generaron. Si al revertir se restauran las urls pero no `developedAt`,
+    `develop` y las dos urls del negativo, la fila queda describiendo un
+    revelado que pertenece al fichero que acabamos de reemplazar — y a partir de
+    ahi el comparador del panel enseña como "antes" una foto que ya no existe, y
+    el proceso de repaso de revelados ve la foto como pendiente o como hecha
+    segun le toque.
+
+    Volver atras tiene que devolver la fila ENTERA a como estaba, no solo las
+    fotos.
+  */
+  urlRaw: string | null;
+  urlRawLarge: string | null;
+  developedAt: Date | null;
+  develop: Revelado | null;
 }

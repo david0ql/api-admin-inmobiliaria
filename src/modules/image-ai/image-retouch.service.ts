@@ -144,6 +144,23 @@ export class ImageRetouchService {
   }
 
   /**
+   * Lo que cuesta un retoque y lo que cuesta un analisis, juntos.
+   *
+   * Van juntos porque separados no dicen nada. "0,245 USD" no le situa el gasto
+   * a nadie; "0,245 USD, unas quinientas veces lo que cuesta analizarla" si. El
+   * panel arma la frase con los dos numeros, y salen los dos de aqui para que
+   * el dia que se cambie de modelo se muevan a la vez — una comparacion en la
+   * que solo se actualiza una mitad miente mas que no ponerla.
+   */
+  get costes() {
+    return {
+      retoqueUsd: COSTE_ORIENTATIVO_USD[this.config.retouch.quality] ?? null,
+      analisisUsd: COSTE_ANALISIS_USD,
+      moneda: 'USD',
+    };
+  }
+
+  /**
    * Que pasaria si se pulsara, sin pulsar.
    *
    * Gratis y a proposito: la clasificacion es lexica y no llama a nadie. Es lo
@@ -152,23 +169,21 @@ export class ImageRetouchService {
    * despues del cobro no es una advertencia, es un recibo.
    */
   /**
-   * Lo que el panel necesita para pintar el boton antes de que nadie lo pulse.
+   * Lo mismo que `costes`, con la forma que espera el panel de retoque.
    *
-   * `costeAnalisis` va al lado del coste del retoque a peticion del panel, y la
-   * razon es buena: "0,245 USD" no le dice nada a un asesor, y "0,245 USD, unas
-   * quinientas veces lo que cuesta analizarla" si. La cifra del analisis sale
-   * de la misma medicion que la otra —una foto a 800 px con `gpt-4.1-mini` en
-   * detalle bajo— y por eso esta aqui y no escrita a mano en el panel: el dia
-   * que se cambie de modelo, las dos cifras se mueven juntas o la comparacion
-   * miente.
+   * Los dos endpoints publican las mismas cifras y las sacan del mismo sitio a
+   * proposito: son dos superficies distintas —el modulo de imagenes completo y
+   * la pantalla de retoque— y el dia que el precio cambie tiene que cambiar en
+   * las dos a la vez o una de ellas mentira sin que nada avise.
    */
   estadoParaPanel() {
     const { enabled, quality, model } = this.config.retouch;
+    const { retoqueUsd, analisisUsd, moneda } = this.costes;
     return {
       enabled,
-      coste: COSTE_ORIENTATIVO_USD[quality] ?? null,
-      moneda: 'USD',
-      costeAnalisis: COSTE_ANALISIS_USD,
+      coste: retoqueUsd,
+      moneda,
+      costeAnalisis: analisisUsd,
       model,
       quality,
     };
@@ -447,10 +462,25 @@ export class ImageRetouchService {
       */
       const soloPixeles = await sharp(editada.data).png().toBuffer();
 
+      /*
+        `revelar: false`, y es importante.
+
+        `StorageService` revela por defecto toda foto que entra, y lo que se le
+        entrega aqui YA viene revelado dos veces: una por el revelado automatico
+        que se aplico cuando la foto se subio —lo que se le manda al modelo es
+        el archivo publicado, no el negativo— y otra por el propio modelo, que
+        decide su tono al redibujar la imagen. Dejar que lo revele una tercera
+        vez es estirar los niveles de una foto a la que ya se le estiraron: se
+        pierde justo lo que se acaba de pagar por mejorar.
+
+        Con `revelar: false` las cuatro variantes salen identicas al negativo, y
+        el negativo es lo que devolvio el modelo. Una sola pasada de tono.
+      */
       const guardada = await this.storage.saveImage(
         soloPixeles,
         StorageService.directoryOf(image.storageKey),
         'retoque.png',
+        { revelar: false },
       );
 
       await this.retouches.update(retouchId, {
@@ -470,6 +500,16 @@ export class ImageRetouchService {
           height: guardada.height,
           bytes: guardada.bytes,
           checksum: guardada.checksum,
+          urlRaw: guardada.urlRaw,
+          urlRawLarge: guardada.urlRawLarge,
+          /*
+            Sin revelar y sin plan de revelado, que es la verdad: estos pixeles
+            los decidio el modelo, no la recta de niveles. Escribir aqui el
+            revelado de la foto anterior haria que la fila atribuyera al
+            programa un tono que no puso.
+          */
+          developedAt: null,
+          develop: null,
         },
         // Listo, pero la foto del anuncio sigue siendo la de antes.
         status: RetouchStatus.PENDIENTE,
@@ -524,6 +564,15 @@ export class ImageRetouchService {
       height: nueva.height,
       bytes: nueva.bytes,
       checksum: nueva.checksum,
+      /*
+        Las urls del "sin revelar" apuntan ahora a las del retoque. Si se
+        quedaran las viejas, el comparador del panel enseñaria al lado de la
+        foto nueva el antes de la foto que acaba de dejar de publicarse.
+      */
+      urlRaw: nueva.urlRaw,
+      urlRawLarge: nueva.urlRawLarge,
+      developedAt: nueva.developedAt,
+      develop: nueva.develop,
       /*
         La marca. Mientras esta columna apunte a esta fila, esa foto del
         catalogo no es una fotografia: es lo que un modelo dibujo a partir de
@@ -613,6 +662,11 @@ export class ImageRetouchService {
       height: previa.height,
       bytes: previa.bytes,
       checksum: previa.checksum,
+      // La fila entera vuelve a como estaba, revelado incluido.
+      urlRaw: previa.urlRaw,
+      urlRawLarge: previa.urlRawLarge,
+      developedAt: previa.developedAt,
+      develop: previa.develop,
       // Vuelve a ser una fotografia: se quita la marca.
       retouchId: null,
       retouchedAt: null,
@@ -746,10 +800,23 @@ export class ImageRetouchService {
       height: image.height,
       bytes: image.bytes,
       checksum: image.checksum,
+      // El estado del revelado va dentro: ver `InstantaneaImagen`.
+      urlRaw: image.urlRaw,
+      urlRawLarge: image.urlRawLarge,
+      developedAt: image.developedAt,
+      develop: image.develop,
     };
   }
 
-  /** Lee del disco la mejor variante que tengamos de la foto. */
+  /**
+   * Lee del disco la foto que se esta publicando, en su tamaño de archivo.
+   *
+   * El archivo publicado y NO el negativo `-r.webp`. Es deliberado: lo que el
+   * asesor quiere mejorar es la foto que se ve en el anuncio, que ya viene
+   * revelada, y partir del negativo tiraria a la basura ese revelado para que
+   * el modelo lo rehiciera a su manera. Como contrapartida, lo que se guarda
+   * despues NO se vuelve a revelar — ver `revelar: false` mas arriba.
+   */
   private async leerOriginal(image: PropertyImage): Promise<Buffer> {
     const clave = image.storageKey.replace(/-o\.webp$/, VARIANTE_ORIGEN);
     try {
