@@ -9,6 +9,7 @@ import { ImageCollectionService } from './image-collection.service';
 import { ImageGateSettings } from './image-gate-settings.entity';
 import { GateSettingsService } from './gate-settings.service';
 import { ImageGateService } from './image-gate.service';
+import { ImageDevelopService } from './image-develop.service';
 
 /*
   La puerta de calidad vive aqui y no en `image-ai`.
@@ -39,6 +40,7 @@ import { ImageGateService } from './image-gate.service';
   ],
   providers: [
     StorageService,
+    ImageDevelopService,
     FileSecurityService,
     ImageCollectionService,
     GateSettingsService,
@@ -46,6 +48,7 @@ import { ImageGateService } from './image-gate.service';
   ],
   exports: [
     StorageService,
+    ImageDevelopService,
     FileSecurityService,
     ImageCollectionService,
     GateSettingsService,

@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Column, Index } from 'typeorm';
 import { BaseEntity } from '../../shared/database/base.entity';
+import type { Revelado } from './image-develop.service';
 
 /**
  * Qué es la imagen, no dónde cuelga.
@@ -99,10 +100,39 @@ export abstract class ImageAsset extends BaseEntity {
 
   @ApiPropertyOptional({
     nullable: true,
-    description: 'Suma de las cuatro variantes',
+    description: 'Suma de las variantes en disco, negativo incluido',
   })
   @Column({ type: 'int', nullable: true })
   bytes: number | null;
+
+  /**
+   * Cuándo se reveló la foto. Nulo mientras no se haya revelado.
+   *
+   * Es lo que hace que el proceso de las 6.306 antiguas se pueda cortar y
+   * reanudar: lo pendiente es lo que tiene esta columna a nulo, no un contador
+   * en un fichero. Y es lo que distingue "revelada y no necesitaba nada" de
+   * "sin revelar todavía", que se ven igual si solo se mira `develop`.
+   */
+  @ApiPropertyOptional({ nullable: true })
+  @Column({ name: 'developed_at', type: 'timestamptz', nullable: true })
+  developedAt: Date | null;
+
+  /**
+   * QUÉ se le hizo a la foto: ganancia, desplazamiento, factores de canal y
+   * gamma, más la versión del criterio.
+   *
+   * Se guarda por tres motivos y ninguno es decorativo. Deshacer necesita
+   * saber que hubo algo que deshacer; afinar el criterio necesita poder
+   * rerevelar solo lo hecho con la versión vieja sin volver a mirar 4,5 GB de
+   * ficheros; y el día que un asesor diga que una foto salió rara, la única
+   * respuesta útil es el número que se le aplicó.
+   *
+   * Nulo con `developed_at` puesto significa lo mejor que puede pasar: se miró
+   * y no hacía falta tocarla.
+   */
+  @ApiPropertyOptional({ nullable: true })
+  @Column({ type: 'jsonb', nullable: true })
+  develop: Revelado | null;
 
   /** El pie de foto que escribe la agencia: "Fachada", "Planta tipo". */
   @ApiPropertyOptional({ nullable: true })

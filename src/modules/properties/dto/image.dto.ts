@@ -1,5 +1,6 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsEnum,
   IsOptional,
   IsString,
@@ -41,4 +42,21 @@ export class UpdateImageDto {
   @IsOptional()
   @IsEnum(ImageKind)
   kind?: ImageKind;
+}
+
+/**
+ * Revelar la foto o dejarla como salio de la camara.
+ *
+ * Un solo interruptor y no un juego de mandos: quien mira la foto en el panel
+ * no sabe —ni tiene por que— cuanta ganancia lleva, sabe si le gusta mas asi o
+ * como estaba. Los numeros los decide el codigo midiendo, y ajustarlos a mano
+ * foto a foto seria retoque, que es otro camino y cuesta dinero.
+ */
+export class DevelopImageDto {
+  @ApiProperty({
+    description:
+      'true vuelve a revelar con el criterio actual; false deja la foto sin revelar',
+  })
+  @IsBoolean()
+  aplicar: boolean;
 }

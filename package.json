@@ -28,7 +28,8 @@
     "seed": "ts-node -r tsconfig-paths/register src/cli/seed.ts",
     "import:wasi": "ts-node -r tsconfig-paths/register src/cli/import-wasi.ts",
     "backfill:medium": "ts-node -r tsconfig-paths/register src/cli/backfill-medium.ts",
-    "backfill:agent-photos": "ts-node -r tsconfig-paths/register src/cli/backfill-agent-photos.ts"
+    "backfill:agent-photos": "ts-node -r tsconfig-paths/register src/cli/backfill-agent-photos.ts",
+    "backfill:revelado": "ts-node -r tsconfig-paths/register src/cli/backfill-revelado.ts"
   },
   "dependencies": {
     "@nestjs/cache-manager": "^3.1.3",

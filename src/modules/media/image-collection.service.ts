@@ -13,6 +13,7 @@ import type {
 import { ImageAsset, ImageKind } from './image-asset.entity';
 import { StorageService } from './storage.service';
 import { ImageGateService } from './image-gate.service';
+import { ImageDevelopService } from './image-develop.service';
 import { GateProfile, GateSeverity, type GateIssue } from './image-gate.rules';
 
 /**
@@ -75,6 +76,7 @@ export class ImageCollectionService {
   constructor(
     private readonly storage: StorageService,
     private readonly gate: ImageGateService,
+    private readonly develop: ImageDevelopService,
   ) {}
 
   /**
@@ -166,10 +168,19 @@ export class ImageCollectionService {
           perceptualHash: veredicto.metrics.perceptualHash,
         });
 
+        /*
+          El revelado va aqui dentro, no como paso aparte.
+
+          Se le pasan las metricas que la puerta acaba de medir para no volver
+          a decodificar la foto entera, y sobre todo para que las dos cosas
+          opinen lo mismo: la foto que el asesor ve avisada como "oscura" es
+          exactamente la que el revelado va a levantar.
+        */
         const stored = await this.storage.saveImage(
           file.buffer,
           scope,
           file.originalname,
+          { metrics: veredicto.metrics },
         );
 
         /*
@@ -191,6 +202,10 @@ export class ImageCollectionService {
               urlOriginal: stored.urlOriginal,
               checksum: stored.checksum,
               perceptualHash: veredicto.metrics.perceptualHash,
+              // Revelada de salida: se apunta cuando, y con que, aunque el
+              // revelado haya sido "no hacia falta nada" (`develop` nulo).
+              developedAt: new Date(),
+              develop: stored.revelado,
               width: stored.width,
               height: stored.height,
               bytes: stored.bytes,
@@ -338,6 +353,43 @@ export class ImageCollectionService {
       });
       await manager.update(tabla, { id: imageId }, { isMain: true });
     });
+  }
+
+  /**
+   * Vuelve a revelar una foto, o le quita el revelado.
+   *
+   * Es el deshacer que exige tener esto encendido por defecto sobre fotos de
+   * clientes reales. Con `aplicar` en false las cuatro variantes se regeneran
+   * desde el negativo tal cual salio de la camara; con true se vuelve a
+   * revelar con el criterio de hoy, que es lo que hace falta cuando cambian
+   * los limites.
+   *
+   * No se toca `storageKey`: las claves y el negativo siguen donde estaban y
+   * lo unico que cambia son los pixeles de las variantes y la marca de version
+   * de las URL, sin la cual el navegador seguiria enseniando la foto anterior
+   * durante un anio.
+   */
+  async revelar<T extends ImageAsset>(
+    coleccion: Coleccion<T>,
+    imageId: string,
+    aplicar: boolean,
+  ): Promise<T> {
+    const imagen = await this.propia(coleccion, imageId);
+    const { revelado, bytes } = await this.storage.rerevelar(
+      imagen.storageKey,
+      (analisis) => (aplicar ? this.develop.plan(analisis) : null),
+    );
+
+    imagen.developedAt = new Date();
+    imagen.develop = revelado;
+    imagen.bytes = bytes;
+    imagen.url = StorageService.marcarVersion(imagen.url);
+    if (imagen.urlMedium) {
+      imagen.urlMedium = StorageService.marcarVersion(imagen.urlMedium);
+    }
+    imagen.urlLarge = StorageService.marcarVersion(imagen.urlLarge);
+    imagen.urlOriginal = StorageService.marcarVersion(imagen.urlOriginal);
+    return coleccion.repo.save(imagen);
   }
 
   /** El pie de foto y si es foto o plano: lo unico editable de una imagen. */

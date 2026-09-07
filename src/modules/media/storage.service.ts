@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import sharp from 'sharp';
 import { AppConfigService } from '../../shared/config/app-config.service';
 import { FileSecurityService, sanitizeName } from './file-security.service';
+import { ImageDevelopService, type Revelado } from './image-develop.service';
+import type { ImageMetrics } from './image-gate.rules';
 
 export interface StoredImage {
   /** Ruta relativa dentro de `uploads/`; es lo que se guarda en la base. */
@@ -20,6 +22,8 @@ export interface StoredImage {
   mimeType: string;
   /** Huella del original: permite no reprocesar una foto ya guardada. */
   checksum: string;
+  /** El revelado aplicado, o null si la foto no necesitaba ninguno. */
+  revelado: Revelado | null;
 }
 
 const ACCEPTED = new Set([
@@ -60,6 +64,33 @@ const LARGE_WIDTH = 1600;
 const ARCHIVE_WIDTH = 2560;
 
 /**
+ * Los cuatro anchos y sus calidades, en cascada. Estan juntos porque el
+ * revelado los recorre y tener las cifras repartidas garantizaba que un dia
+ * `backfill` generara algo distinto de lo que genera una subida.
+ */
+const VARIANTES = [
+  { sufijo: '-o.webp', ancho: ARCHIVE_WIDTH, calidad: 86 },
+  { sufijo: '-l.webp', ancho: LARGE_WIDTH, calidad: 82 },
+  { sufijo: '-m.webp', ancho: MEDIUM_WIDTH, calidad: 80 },
+  { sufijo: '-t.webp', ancho: THUMB_WIDTH, calidad: 78 },
+] as const;
+
+/**
+ * El negativo: la foto entera, enderezada por EXIF y reducida a 2560 px, SIN
+ * revelar.
+ *
+ * Es la pieza que hace reversible todo lo demas. Las fotos son de inmuebles de
+ * clientes reales y el revelado es automatico: si un dia deja una foto peor,
+ * tiene que poder deshacerse sin volver a pedirsela al propietario. Con el
+ * negativo en disco, deshacer es regenerar las cuatro variantes desde el, y
+ * cuesta lo mismo que generarlas.
+ *
+ * Ocupa: es una copia mas del tamano de archivo, unos 2,7 GB sobre los 4,5 que
+ * ya hay. Es el precio de poder decir que no se ha perdido nada.
+ */
+const RAW_SUFFIX = '-r.webp';
+
+/**
  * libvips paraleliza cada operacion entre todos los nucleos. Con varias fotos
  * en vuelo eso solo produce contencion: el paralelismo lo pone la cola de
  * descargas, asi que cada imagen se procesa en un hilo.
@@ -98,6 +129,7 @@ export class StorageService {
   constructor(
     private readonly config: AppConfigService,
     private readonly security: FileSecurityService,
+    private readonly develop: ImageDevelopService,
   ) {
     const dir = config.uploadsDir;
     this.root = isAbsolute(dir) ? dir : resolve(process.cwd(), dir);
@@ -123,6 +155,15 @@ export class StorageService {
     buffer: Buffer,
     scope: string,
     originalName?: string,
+    /**
+     * `metrics` es lo que ya midio la puerta de calidad, para no volver a
+     * decodificar la foto entera; `revelar` en false guarda la foto tal cual
+     * llego, que es lo que hace falta al reimportar algo ya revelado.
+     */
+    {
+      metrics,
+      revelar = true,
+    }: { metrics?: ImageMetrics; revelar?: boolean } = {},
   ): Promise<StoredImage> {
     const safeName = sanitizeName(originalName ?? 'imagen');
 
@@ -166,55 +207,147 @@ export class StorageService {
     const width = meta.width ?? 0;
     const height = meta.height ?? 0;
 
-    const thumbKey = `${scope}/${id}-t.webp`;
-    const mediumKey = `${scope}/${id}-m.webp`;
-    const largeKey = `${scope}/${id}-l.webp`;
-    const originalKey = `${scope}/${id}-o.webp`;
+    const base = `${scope}/${id}`;
+    const originalKey = `${base}-o.webp`;
 
-    // Cadena en cascada: se decodifica el original una vez y cada tamano se
-    // deriva del inmediatamente mayor. Antes se decodificaba tres veces el
-    // fichero completo, que con fotos de 11 megapixeles es lo que hacia lento
-    // el proceso.
-    const archive = await sharp(buffer)
+    /*
+      El negativo se genera y se guarda ANTES de revelar nada.
+
+      Es una pasada mas —decodificar el fichero del usuario, rotarlo por EXIF y
+      reducirlo a 2560 px—, y a partir de ahi todo sale de el: el revelado se
+      analiza y se aplica sobre el negativo, no sobre el fichero de entrada.
+      Asi una foto subida hoy y la misma foto revelada manana por el proceso de
+      las 6.306 antiguas dan exactamente el mismo resultado, en lugar de dos
+      revelados parecidos que nadie sabria comparar.
+    */
+    const negativo = await sharp(buffer, {
+      limitInputPixels: MAX_INPUT_PIXELS,
+      pages: 1,
+    })
       .rotate() // respeta la orientacion EXIF
       .resize({ width: ARCHIVE_WIDTH, withoutEnlargement: true })
       .webp({ quality: 86, effort: 3 })
       .toBuffer();
+    await this.escribirEntero(`${base}${RAW_SUFFIX}`, negativo);
 
-    const large = await sharp(archive)
-      .resize({ width: LARGE_WIDTH, withoutEnlargement: true })
-      .webp({ quality: 82, effort: 3 })
-      .toBuffer();
+    const revelado = revelar
+      ? this.develop.plan(await this.develop.analizar(negativo, metrics))
+      : null;
 
-    const medium = await sharp(large)
-      .resize({ width: MEDIUM_WIDTH, withoutEnlargement: true })
-      .webp({ quality: 80, effort: 3 })
-      .toBuffer();
-
-    const thumb = await sharp(medium)
-      .resize({ width: THUMB_WIDTH, withoutEnlargement: true })
-      .webp({ quality: 78, effort: 3 })
-      .toBuffer();
-
-    await Promise.all([
-      this.escribirEntero(thumbKey, thumb),
-      this.escribirEntero(mediumKey, medium),
-      this.escribirEntero(largeKey, large),
-      this.escribirEntero(originalKey, archive),
-    ]);
+    const bytes = await this.generarVariantes(base, negativo, revelado);
 
     return {
       key: originalKey,
-      url: this.publicUrl(thumbKey),
-      urlMedium: this.publicUrl(mediumKey),
-      urlLarge: this.publicUrl(largeKey),
+      url: this.publicUrl(`${base}-t.webp`),
+      urlMedium: this.publicUrl(`${base}-m.webp`),
+      urlLarge: this.publicUrl(`${base}-l.webp`),
       urlOriginal: this.publicUrl(originalKey),
       width,
       height,
-      bytes: thumb.length + medium.length + large.length + archive.length,
+      bytes: bytes + negativo.length,
       mimeType: 'image/webp',
       checksum,
+      revelado,
     };
+  }
+
+  /**
+   * Genera las cuatro variantes desde el negativo y devuelve lo que ocupan.
+   *
+   * Cascada: se decodifica el negativo una vez y cada tamano se deriva del
+   * inmediatamente mayor. Antes se decodificaba tres veces el fichero
+   * completo, que con fotos de 11 megapixeles es lo que hacia lento el
+   * proceso.
+   *
+   * El revelado se aplica UNA vez, en el paso mas grande, y desde ahi se hereda
+   * a los demas. El enfoque, al reves, va en cada paso que reduce de verdad:
+   * es la reduccion la que emborrona, y aplicarlo solo arriba se pierde por el
+   * camino hasta la miniatura, que es la imagen que mas se mira en el listado.
+   */
+  private async generarVariantes(
+    base: string,
+    negativo: Buffer,
+    revelado: Revelado | null,
+  ): Promise<number> {
+    let anterior = negativo;
+    let anchoPrevio = (await sharp(negativo).metadata()).width ?? ARCHIVE_WIDTH;
+    let total = 0;
+
+    for (const [indice, variante] of VARIANTES.entries()) {
+      /*
+        Sin revelado que aplicar, el archivo ES el negativo: se copia tal cual.
+
+        Es el camino que recorre el deshacer, y reencodear ahi seria perder
+        calidad justo en la operacion que existe para no perder nada: un
+        webp de calidad 86 recomprimido a 86 no vuelve a los mismos pixeles.
+        Asi deshacer devuelve el archivo byte a byte, y de paso se ahorra la
+        pasada mas cara de las cuatro.
+      */
+      if (indice === 0 && !revelado && anchoPrevio <= variante.ancho) {
+        total += anterior.length;
+        await this.escribirEntero(`${base}${variante.sufijo}`, anterior);
+        continue;
+      }
+
+      let pipe = sharp(anterior).resize({
+        width: variante.ancho,
+        withoutEnlargement: true,
+      });
+      if (indice === 0) pipe = this.develop.aplicar(pipe, revelado);
+      pipe = this.develop.enfoque(pipe, anchoPrevio > variante.ancho);
+
+      anterior = await pipe
+        .webp({ quality: variante.calidad, effort: 3 })
+        .toBuffer();
+      anchoPrevio = Math.min(anchoPrevio, variante.ancho);
+      total += anterior.length;
+      await this.escribirEntero(`${base}${variante.sufijo}`, anterior);
+    }
+    return total;
+  }
+
+  /**
+   * Vuelve a generar las cuatro variantes de una foto ya guardada.
+   *
+   * Es a la vez el revelado de lo antiguo y el deshacer: con `revelado` puesto
+   * aplica ese, con null deja la foto como salio de la camara. Parte siempre
+   * del negativo, asi que revelar dos veces no acumula nada — se revela sobre
+   * el mismo punto de partida, no sobre lo ya revelado.
+   *
+   * Devuelve tambien el analisis, porque quien llama —el proceso de las 6.306—
+   * decide con el si merece la pena tocar la foto.
+   */
+  async rerevelar(
+    storageKey: string,
+    decidir: (
+      analisis: Awaited<ReturnType<ImageDevelopService['analizar']>>,
+    ) => Revelado | null,
+  ): Promise<{ revelado: Revelado | null; bytes: number }> {
+    const base = storageKey.replace(/-o\.webp$/, '');
+    const negativo = await this.leerNegativo(base);
+    const revelado = decidir(await this.develop.analizar(negativo));
+    const bytes = await this.generarVariantes(base, negativo, revelado);
+    return { revelado, bytes: bytes + negativo.length };
+  }
+
+  /**
+   * El negativo de una foto, creandolo desde el archivo si aun no existe.
+   *
+   * Las 6.306 fotos que ya estaban se guardaron antes de que hubiera negativo,
+   * pero su `-o.webp` ES el archivo sin revelar: se copia tal cual, sin
+   * reencodear, y a partir de ese momento la foto es reversible como las
+   * nuevas. Copiar y no reencodear no es un detalle: reencodear el archivo
+   * seria perder calidad justo en la copia que existe para no perder nada.
+   */
+  private async leerNegativo(base: string): Promise<Buffer> {
+    const negativoPath = join(this.root, `${base}${RAW_SUFFIX}`);
+    try {
+      return await readFile(negativoPath);
+    } catch {
+      const archivo = await readFile(join(this.root, `${base}-o.webp`));
+      await this.escribirEntero(`${base}${RAW_SUFFIX}`, archivo);
+      return archivo;
+    }
   }
 
   /**
@@ -350,12 +483,33 @@ export class StorageService {
     return path;
   }
 
+  /**
+   * Le pone marca de version a una URL ya publicada.
+   *
+   * `/media/` se sirve con `immutable` y un ano de cache. Eso es lo correcto
+   * mientras un fichero no cambie nunca — y hasta ahora no cambiaba—, pero el
+   * revelado reescribe las cuatro variantes SIN cambiar de nombre: sin esta
+   * marca, quien ya hubiera abierto la ficha —y el proxy que tenga delante—
+   * seguiria viendo la foto vieja durante un ano, y deshacer un revelado malo
+   * no se notaria en el sitio.
+   *
+   * Cambiar el nombre del fichero en su lugar obligaria a reescribir cuatro
+   * columnas mas la clave de almacenamiento y a borrar los ficheros viejos, o
+   * sea a que un corte a mitad dejara filas apuntando a lo que ya no esta. La
+   * marca en la consulta la ignora `express.static` para localizar el fichero
+   * y la tiene en cuenta el navegador para la cache, que es justo el reparto
+   * que hace falta.
+   */
+  static marcarVersion(url: string): string {
+    return `${url.split('?')[0]}?r=${Date.now().toString(36)}`;
+  }
+
   /** Borra las tres variantes a partir de la clave del original. */
   async remove(key: string): Promise<void> {
     if (!key) return;
     const base = key.replace(/-o\.webp$/, '');
     await Promise.all(
-      ['-t.webp', '-m.webp', '-l.webp', '-o.webp'].map((suffix) =>
+      ['-t.webp', '-m.webp', '-l.webp', '-o.webp', RAW_SUFFIX].map((suffix) =>
         rm(join(this.root, `${base}${suffix}`), { force: true }),
       ),
     );

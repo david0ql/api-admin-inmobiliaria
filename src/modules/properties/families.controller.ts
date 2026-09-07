@@ -23,7 +23,11 @@ import {
   UpdateFamilyDto,
 } from './dto/family.dto';
 import { ReorderImagesDto } from './dto/property.dto';
-import { UpdateImageDto, UploadImagesDto } from './dto/image.dto';
+import {
+  DevelopImageDto,
+  UpdateImageDto,
+  UploadImagesDto,
+} from './dto/image.dto';
 import { Roles } from '../iam/decorators';
 import { Role } from '../iam/domain/role.enum';
 
@@ -83,6 +87,24 @@ export class FamiliesController {
   @Roles(Role.ADMIN, Role.MANAGER)
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateFamilyDto) {
     return this.families.update(id, dto);
+  }
+
+  @Patch('families/:id/images/:imageId/develop')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({
+    summary: 'Revela la foto o le quita el revelado',
+    description:
+      'El revelado —niveles, balance de blancos, gamma y enfoque de salida— se ' +
+      'aplica solo al subir. Esto lo rehace con el criterio de hoy o lo ' +
+      'deshace: `aplicar: false` deja las cuatro variantes tal y como salieron ' +
+      'de la camara, partiendo del original, que se conserva siempre.',
+  })
+  developImage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('imageId', ParseUUIDPipe) imageId: string,
+    @Body() dto: DevelopImageDto,
+  ) {
+    return this.families.developImage(id, imageId, dto.aplicar);
   }
 
   @Delete('families/:id')

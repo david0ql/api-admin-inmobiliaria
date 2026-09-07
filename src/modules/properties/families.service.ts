@@ -439,6 +439,16 @@ export class FamiliesService {
     return this.galeria.update(this.coleccion(id), imageId, dto);
   }
 
+  /** Vuelve a revelar la foto del proyecto, o le quita el revelado. */
+  async developImage(
+    id: string,
+    imageId: string,
+    aplicar: boolean,
+  ): Promise<FamilyImage> {
+    await this.editable(id);
+    return this.galeria.revelar(this.coleccion(id), imageId, aplicar);
+  }
+
   async removeImage(id: string, imageId: string): Promise<void> {
     await this.editable(id);
     return this.galeria.remove(this.coleccion(id), imageId);

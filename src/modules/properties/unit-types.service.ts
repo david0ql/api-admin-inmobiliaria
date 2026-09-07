@@ -505,6 +505,16 @@ export class UnitTypesService {
     return this.galeria.update(this.coleccion(id), imageId, dto);
   }
 
+  /** Vuelve a revelar la foto de la tipologia, o le quita el revelado. */
+  async developImage(
+    id: string,
+    imageId: string,
+    aplicar: boolean,
+  ): Promise<UnitTypeImage> {
+    await this.findById(id);
+    return this.galeria.revelar(this.coleccion(id), imageId, aplicar);
+  }
+
   async removeImage(id: string, imageId: string): Promise<void> {
     await this.findById(id);
     return this.galeria.remove(this.coleccion(id), imageId);

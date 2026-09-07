@@ -21,7 +21,11 @@ import {
   UpdateUnitTypeDto,
 } from './dto/unit-type.dto';
 import { ReorderImagesDto } from './dto/property.dto';
-import { UpdateImageDto, UploadImagesDto } from './dto/image.dto';
+import {
+  DevelopImageDto,
+  UpdateImageDto,
+  UploadImagesDto,
+} from './dto/image.dto';
 import { Roles } from '../iam/decorators';
 import { Role } from '../iam/domain/role.enum';
 
@@ -84,6 +88,24 @@ export class UnitTypesController {
     @Body() dto: UpdateUnitTypeDto,
   ) {
     return this.unitTypes.update(id, dto);
+  }
+
+  @Patch('unit-types/:id/images/:imageId/develop')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({
+    summary: 'Revela la foto o le quita el revelado',
+    description:
+      'El revelado —niveles, balance de blancos, gamma y enfoque de salida— se ' +
+      'aplica solo al subir. Esto lo rehace con el criterio de hoy o lo ' +
+      'deshace: `aplicar: false` deja las cuatro variantes tal y como salieron ' +
+      'de la camara, partiendo del original, que se conserva siempre.',
+  })
+  developImage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('imageId', ParseUUIDPipe) imageId: string,
+    @Body() dto: DevelopImageDto,
+  ) {
+    return this.unitTypes.developImage(id, imageId, dto.aplicar);
   }
 
   @Delete('unit-types/:id')

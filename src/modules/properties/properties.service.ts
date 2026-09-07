@@ -441,6 +441,24 @@ export class PropertiesService {
     return this.galeria.update(this.coleccion(id), imageId, dto);
   }
 
+  /**
+   * Vuelve a revelar la foto, o le quita el revelado.
+   *
+   * El revelado va puesto por defecto y es automatico, asi que tiene que
+   * poder deshacerse foto a foto: son inmuebles de clientes reales y nadie va
+   * a mirar 6.306 fotos una por una. Los permisos son los mismos que para
+   * borrarla — quien puede quitarla del anuncio puede decidir como se ve.
+   */
+  async developImage(
+    id: string,
+    imageId: string,
+    aplicar: boolean,
+    actor: AuthenticatedActor,
+  ): Promise<PropertyImage> {
+    await this.editable(id, actor);
+    return this.galeria.revelar(this.coleccion(id), imageId, aplicar);
+  }
+
   async removeImage(
     id: string,
     imageId: string,

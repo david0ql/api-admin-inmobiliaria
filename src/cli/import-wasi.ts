@@ -7,6 +7,7 @@ import { AppDataSource } from '../shared/database/data-source';
 import { validateEnv } from '../shared/config/env.schema';
 import { StorageService } from '../modules/media/storage.service';
 import { FileSecurityService } from '../modules/media/file-security.service';
+import { ImageDevelopService } from '../modules/media/image-develop.service';
 import { Agent } from '../modules/iam/domain/agent.entity';
 import { AgentStatus, Role } from '../modules/iam/domain/role.enum';
 import { City, Zone } from '../modules/catalog/domain/geography.entity';
@@ -94,6 +95,7 @@ const storageConfig = {
 const storage = new StorageService(
   storageConfig,
   new FileSecurityService(storageConfig),
+  new ImageDevelopService(),
 );
 
 /**
