@@ -10,9 +10,11 @@ import { ImageRetouch } from './domain/image-retouch.entity';
 import { ImageAlbumAnalysis } from './domain/image-album-analysis.entity';
 import { ImagePromptService } from './image-prompt.service';
 import { ImageAnalysisService } from './image-analysis.service';
+import { PropuestaService } from './propuesta.service';
 import { ImageRetouchService } from './image-retouch.service';
 import { SamplesService } from './samples.service';
 import { ImageAiController } from './image-ai.controller';
+import { RetouchPanelController } from './retouch-panel.controller';
 
 /**
  * Calidad de las fotos de un inmueble: primero el codigo, luego la IA.
@@ -53,10 +55,11 @@ import { ImageAiController } from './image-ai.controller';
     ]),
     MediaModule,
   ],
-  controllers: [ImageAiController],
+  controllers: [ImageAiController, RetouchPanelController],
   providers: [
     ImagePromptService,
     ImageAnalysisService,
+    PropuestaService,
     ImageRetouchService,
     SamplesService,
     OpenAiProvider,

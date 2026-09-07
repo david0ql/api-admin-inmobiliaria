@@ -24,6 +24,7 @@ import {
 import { ROOM_LABEL, RoomKind } from './domain/image-analysis.enums';
 import { GateSettingsService } from '../media/gate-settings.service';
 import { ImageAnalysisService } from './image-analysis.service';
+import { PropuestaService } from './propuesta.service';
 import { ImageRetouchService } from './image-retouch.service';
 import { RETOUCH_KIND_LABEL } from './domain/image-retouch.enums';
 import { RetouchDto, RetouchPreviewDto } from './dto/image-retouch.dto';
@@ -56,6 +57,7 @@ import {
 export class ImageAiController {
   constructor(
     private readonly analysis: ImageAnalysisService,
+    private readonly propuestas: PropuestaService,
     private readonly prompts: ImagePromptService,
     private readonly gate: GateSettingsService,
     private readonly samples: SamplesService,
@@ -253,6 +255,38 @@ export class ImageAiController {
     @CurrentUser() actor: AuthenticatedActor,
   ) {
     return this.analysis.reviewPrivacy(id, dto.dismissed, actor);
+  }
+
+  // --- la propuesta de retoque ----------------------------------------------
+
+  @Get('propuesta/properties/:id')
+  @ApiOperation({
+    summary: 'Que se le haria a cada foto de un inmueble',
+    description:
+      'No llama al modelo ni cuesta nada: traduce lo ya analizado. Cada sugerencia trae `destino`: AUTO es lo que el sistema puede aplicar solo —y solo entra ahi lo que el codigo ha confirmado midiendo los pixeles—, REVISITA es lo que obliga a volver a la casa o a que alguien mire la foto.',
+  })
+  propuesta(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() actor: AuthenticatedActor,
+  ) {
+    return this.propuestas.porInmueble(id, actor);
+  }
+
+  @Post('propuesta/properties/:id')
+  @ApiOperation({
+    summary: 'Analizar y devolver la propuesta',
+    description:
+      'Esto SI llama al modelo y se paga por imagen: son unos 0,00074 USD por foto. Salta lo ya analizado con el mismo prompt y el mismo modelo salvo que se pida `force`.',
+  })
+  generarPropuesta(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AnalyzePropertyDto,
+    @CurrentUser() actor: AuthenticatedActor,
+  ) {
+    return this.propuestas.analizar(id, actor, {
+      imageIds: dto.imageIds,
+      force: dto.force,
+    });
   }
 
   // --- el prompt ------------------------------------------------------------

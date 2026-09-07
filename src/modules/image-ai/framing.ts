@@ -106,7 +106,7 @@ const MINIMO_CONFIRMADO = 15;
  * Quitar mas de un tercio por un lado ya no es recortar, es encuadrar otra foto
  * — y eso no se hace sin que lo vea nadie.
  */
-const MAXIMO_CORTE = 35;
+export const MAXIMO_CORTE = 35;
 
 /** Lo que la puerta de codigo ya sabe de la foto y aqui manda. */
 export interface EstadoFisico {

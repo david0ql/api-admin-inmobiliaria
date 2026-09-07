@@ -787,10 +787,26 @@ export class ImageAnalysisService {
         promptHash: ctx.promptHash,
         model: ctx.model,
         batchId: ctx.batchId,
+        /*
+          Las cifras de la puerta, no solo el tamaño.
+
+          Antes se guardaban tres numeros que ya estaban en la fila de la
+          imagen, asi que la columna no aportaba nada. Ahora se guarda lo que
+          midio la puerta sobre el original en el momento del analisis, que es
+          parte de la pregunta que se le hizo al modelo y lo que permite al
+          panel enseñar el dato al lado de la frase: "1,49:1" se puede discutir,
+          "muy apaisada" no.
+        */
         metrics: {
-          width: cargada.image.width,
-          height: cargada.image.height,
+          width: cargada.metricas?.width ?? cargada.image.width,
+          height: cargada.metricas?.height ?? cargada.image.height,
           bytes: cargada.image.bytes,
+          aspectRatio: cargada.metricas?.aspectRatio ?? null,
+          megapixels: cargada.metricas?.megapixels ?? null,
+          sharpness: cargada.metricas?.sharpness ?? null,
+          brightness: cargada.metricas?.brightness ?? null,
+          darkFraction: cargada.metricas?.darkFraction ?? null,
+          brightFraction: cargada.metricas?.brightFraction ?? null,
         },
         createdByAgentId: ctx.actor.id,
       });
