@@ -12,6 +12,8 @@ import { StorageService } from '../modules/media/storage.service';
 import {
   ImageDevelopService,
   REVELADO_VERSION,
+  pendienteDeRevelado,
+  type EstadoRevelado,
 } from '../modules/media/image-develop.service';
 import type { ImageAsset } from '../modules/media/image-asset.entity';
 import { PropertyImage } from '../modules/properties/domain/property-image.entity';
@@ -129,22 +131,36 @@ async function main() {
           developedAt: true,
           develop: true,
           crop: true,
+          // Solo `property_image` la tiene; en las otras dos el select la
+          // ignora y el campo llega `undefined`, que es lo correcto: un
+          // proyecto y una tipologia no se retocan con IA.
+          ...(entidad === PropertyImage ? { retouchId: true } : {}),
         },
         loadEagerRelations: false,
       });
 
+      /*
+        El retoque manda sobre `--force`.
+
+        `--force` significa "rehaz aunque ya este hecho", no "rehaz aunque una
+        persona haya aprobado otra cosa". Una foto retocada lleva pixeles que
+        dibujo un modelo y que alguien acepto mirandolos; revelar encima le
+        cambia el tono a un anuncio que ya se dio por bueno.
+      */
+      const conRetoque = todas.filter(
+        (img) => (img as EstadoRevelado).retouchId,
+      ).length;
       const pendientes = todas
         .filter((img) =>
           FORCE
-            ? true
-            : !img.developedAt ||
-              // Reveladas con un criterio anterior: se rehacen, y solo esas.
-              (img.develop?.version ?? 0) < REVELADO_VERSION,
+            ? !(img as EstadoRevelado).retouchId
+            : pendienteDeRevelado(img as EstadoRevelado),
         )
         .slice(0, restante);
 
       console.log(
-        `  ${entidad.name}: ${pendientes.length} pendientes de ${todas.length}`,
+        `  ${entidad.name}: ${pendientes.length} pendientes de ${todas.length}` +
+          (conRetoque ? `, ${conRetoque} con retoque (no se tocan)` : ''),
       );
       restante -= pendientes.length;
       if (DRY_RUN || !pendientes.length) continue;

@@ -120,6 +120,46 @@ const LIMITES = {
   amortigua: 0.7,
 };
 
+/** Lo que hay que mirar de una fila para saber si le toca revelado. */
+export interface EstadoRevelado {
+  developedAt: Date | null;
+  develop: Revelado | null;
+  /** Puesto si un modelo redibujo la foto y alguien acepto el resultado. */
+  retouchId?: string | null;
+}
+
+/**
+ * Si a esta foto le toca revelado.
+ *
+ * Es la regla que decide que se toca de las 6.306 de produccion, asi que las
+ * tres condiciones estan aqui, juntas y probadas, y no repartidas por un
+ * script.
+ *
+ * 1. **Con retoque aceptado no se toca, nunca, ni con `--force`.** Esos pixeles
+ *    los dibujo un modelo y una persona los aprobo mirandolos. Revelar encima
+ *    seria cambiarle el tono a una foto que alguien ya dio por buena, en masa y
+ *    sin que nadie lo pidiera.
+ *
+ * 2. **Sin `developedAt` esta pendiente**, que es el caso de las 6.306.
+ *
+ * 3. **Ya revelada, solo si lo fue con un criterio anterior.** Y solo cuenta
+ *    como "criterio anterior" si hay plan que comparar: una foto que se miro y
+ *    no necesitaba nada (`develop` nulo) NO se vuelve a mirar sola. Antes si, y
+ *    era un fallo silencioso: esas fotos —unas 170 en el inventario— salian
+ *    pendientes en cada pasada y se reescribian enteras para dejarlas igual,
+ *    reversionando sus URL y obligando a todo el que las tuviera en cache a
+ *    bajarselas otra vez. Si se cambia el criterio y se quieren reexaminar
+ *    tambien esas, para eso esta `--force`.
+ */
+export function pendienteDeRevelado(
+  fila: EstadoRevelado,
+  version = REVELADO_VERSION,
+): boolean {
+  if (fila.retouchId) return false;
+  if (!fila.developedAt) return true;
+  return fila.develop != null && fila.develop.version < version;
+}
+
 @Injectable()
 export class ImageDevelopService {
   /**

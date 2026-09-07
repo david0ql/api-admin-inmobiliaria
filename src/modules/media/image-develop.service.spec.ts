@@ -3,7 +3,11 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
-import { ImageDevelopService } from './image-develop.service';
+import {
+  ImageDevelopService,
+  pendienteDeRevelado,
+  type Revelado,
+} from './image-develop.service';
 import { StorageService } from './storage.service';
 import type { AppConfigService } from '../../shared/config/app-config.service';
 import type { FileSecurityService } from './file-security.service';
@@ -209,6 +213,64 @@ describe('ImageDevelopService: el revelado', () => {
       /^Niveles automaticos: \+\d+ % de contraste$/,
     );
     expect(plan!.resumen.at(-1)).toContain('Enfoque de salida');
+  });
+
+  /*
+    La regla que decide que se toca de las 6.306 de produccion. Se prueba
+    aparte porque un fallo aqui no se ve: no da error, simplemente toca fotos
+    que no debia o deja sin tocar las que si.
+  */
+  describe('a quien le toca revelado', () => {
+    const plan = (version: number): Revelado => ({
+      version,
+      resumen: [],
+      niveles: { g: 1.1, b: -5 },
+    });
+
+    it('las que nunca se han revelado', () => {
+      expect(pendienteDeRevelado({ developedAt: null, develop: null })).toBe(
+        true,
+      );
+    });
+
+    it('las reveladas con un criterio anterior, y solo esas', () => {
+      const developedAt = new Date();
+      expect(pendienteDeRevelado({ developedAt, develop: plan(1) }, 2)).toBe(
+        true,
+      );
+      expect(pendienteDeRevelado({ developedAt, develop: plan(2) }, 2)).toBe(
+        false,
+      );
+    });
+
+    /*
+      Una foto que se miro y no necesitaba nada no se vuelve a mirar sola.
+      Antes si, y era un fallo silencioso: unas 170 fotos del inventario salian
+      pendientes en cada pasada y se reescribian enteras para dejarlas igual,
+      reversionando sus URL y obligando a bajarselas otra vez a todo el que las
+      tuviera en cache.
+    */
+    it('no reexamina en cada pasada las que no necesitaban nada', () => {
+      expect(
+        pendienteDeRevelado({ developedAt: new Date(), develop: null }),
+      ).toBe(false);
+    });
+
+    /*
+      Esta es la importante. Los pixeles de una foto retocada los dibujo un
+      modelo y una persona los aprobo mirandolos; revelar encima le cambia el
+      tono a un anuncio que ya se dio por bueno, en masa y sin que nadie lo
+      pidiera.
+    */
+    it('nunca una foto con retoque aceptado, ni aunque este sin revelar', () => {
+      expect(
+        pendienteDeRevelado({
+          developedAt: null,
+          develop: null,
+          retouchId: 'a3f1',
+        }),
+      ).toBe(false);
+    });
   });
 
   it('enfoca solo cuando el paso reduce de verdad', () => {
