@@ -16,6 +16,26 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * Nula hacia atras, que quiere decir la foto entera. Es la verdad: ninguna de
  * las 6.306 esta recortada.
+ *
+ * ---
+ *
+ * NO SE RENUMERA, aunque comparta timestamp con `ImageRetouch1787300000000`.
+ *
+ * El choque es real y feo, pero corregirlo ahora tumba el despliegue. TypeORM
+ * decide que esta pendiente comparando el NOMBRE DE LA CLASE, no el timestamp
+ * (`MigrationExecutor.getPendingMigrations`: `executedMigration.name ===
+ * migration.name`), y las dos migraciones YA ESTAN EJECUTADAS en produccion —
+ * comprobado en la tabla `migrations`, y la columna `crop` ya existe.
+ * Renombrar la clase la volveria a dejar pendiente, se reejecutaria el
+ * `ADD COLUMN "crop"` sobre una tabla que ya lo tiene y el arranque fallaria.
+ *
+ * Convivir con el duplicado es inofensivo: el timestamp solo ordena lo que
+ * esta PENDIENTE, ya no lo esta ninguna de las dos, y en una base nueva las
+ * dos son `ADD COLUMN` de columnas distintas en tablas distintas, asi que el
+ * orden entre ellas da igual.
+ *
+ * Lo que si hay que hacer es no repetirlo: los timestamps libres empiezan en
+ * 1787700000000.
  */
 export class ImageCrop1787300000000 implements MigrationInterface {
   private readonly tablas = [

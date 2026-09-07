@@ -447,7 +447,7 @@ export class StorageService {
     storageKey: string,
     caja: Caja | null,
     revelado: Revelado | null,
-  ): Promise<{ bytes: number }> {
+  ): Promise<{ bytes: number; width: number; height: number }> {
     const base = storageKey.replace(/-o\.webp$/, '');
     const negativo = await this.leerNegativo(base);
     const bytes = await this.generarVariantes(
@@ -461,7 +461,26 @@ export class StorageService {
     // comparador enseña una foto entera al lado de una recortada y quien mira
     // concluye que el revelado le ha comido un trozo a la foto.
     const bytesSinRevelar = await this.asegurarSinRevelar(base, negativo, caja);
-    return { bytes: bytes + bytesSinRevelar };
+
+    /*
+      Se devuelven las medidas del archivo recien escrito, y no las que salgan
+      de multiplicar la caja por las de antes.
+
+      Quien llama tiene que guardarlas en la fila: si no, la fila sigue
+      diciendo el tamaño de antes del recorte y el panel enseña unas medidas
+      que ya no son las del fichero. Y se leen del archivo porque el recorte
+      redondea a pixeles enteros — calcularlas aparte es tener dos verdades
+      sobre el mismo fichero, y la de la fila seria la falsa.
+    */
+    const meta = await sharp(
+      await readFile(join(this.root, `${base}-o.webp`)),
+    ).metadata();
+
+    return {
+      bytes: bytes + bytesSinRevelar,
+      width: meta.width ?? 0,
+      height: meta.height ?? 0,
+    };
   }
 
   /**

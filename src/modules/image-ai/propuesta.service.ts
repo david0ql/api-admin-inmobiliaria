@@ -321,13 +321,24 @@ export class PropuestaService {
     await this.analysis.assertPuedeTocar(image.propertyId, actor);
 
     const caja = cajaDeCortes(cortes);
-    const { bytes } = await this.storage.recortar(
+    const { bytes, width, height } = await this.storage.recortar(
       image.storageKey,
       caja,
       image.develop,
     );
 
-    await this.images.update({ id: imageId }, { crop: caja, bytes });
+    /*
+      El tamaño se actualiza con el recorte, no solo el peso.
+
+      Recortar cambia lo que mide el fichero, y la fila es de donde salen las
+      medidas que el panel enseña al lado de la propuesta. Sin esto, una foto
+      recortada seguiria anunciando su tamaño de antes: el asesor leeria
+      "2528x1696, 1,49:1" mirando una foto que ya es 2528x1459 y 1,73:1.
+    */
+    await this.images.update(
+      { id: imageId },
+      { crop: caja, bytes, width, height },
+    );
     this.logger.log(
       caja
         ? `${actor.id} recorta ${imageId}: ${JSON.stringify(caja)}`
