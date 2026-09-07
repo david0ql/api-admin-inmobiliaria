@@ -115,7 +115,7 @@ por bien hechas que esten. Una foto puede tener `quality` 90 y `coverScore` 10.
 ## El orden
 
 En `suggestedOrder` propon el recorrido con el que una persona entenderia la
-casa: primero por fuera, luego la entrada, luego lo social (sala, comedor,
+casa, **empezando por la portada**: primero por fuera, luego la entrada, luego lo social (sala, comedor,
 cocina), luego lo privado (alcobas y sus banos), luego lo de fuera (balcon,
 terraza, patio), luego las zonas comunes, y al final el plano si lo hay.
 
@@ -236,7 +236,6 @@ Reglas del formato:
 - `missing` mandalo vacio: lo rellena el sistema a partir de tus `room` y de lo
   que ese inmueble puede llegar a tener. Lo que escribas ahi se descarta.
 - `suggestedOrder` contiene todos los indices, sin repetir ni saltarse ninguno.
-- `coverIndex` tiene que ser EXACTAMENTE el primer numero de `suggestedOrder`.
-  Decide primero cual es la portada, ponla la primera del orden y copia ese
-  mismo numero en `coverIndex`. Si no coinciden, la ficha ensena una portada y
-  ordena por otra.
+- La portada es el primer elemento de `suggestedOrder`: la portada la eliges
+  poniendola la primera, no rellenando otro campo. `coverIndex` copia ese mismo
+  numero, pero el que manda es el orden; el sistema saca la portada de ahi.
