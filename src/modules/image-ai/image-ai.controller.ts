@@ -23,7 +23,7 @@ import {
 import { ROOM_LABEL, RoomKind } from './domain/image-analysis.enums';
 import { GateSettingsService } from '../media/gate-settings.service';
 import { ImageAnalysisService } from './image-analysis.service';
-import { ImagePromptService } from './image-prompt.service';
+import { huellaPrompt, ImagePromptService } from './image-prompt.service';
 import { SamplesService } from './samples.service';
 import {
   AnalyzePropertyDto,
@@ -69,6 +69,13 @@ export class ImageAiController {
     return {
       enabled: this.analysis.available,
       promptVersion: prompt.version,
+      /*
+        La huella del texto activo. El panel la compara con la que trae cada
+        resultado y contesta sin ambiguedad "esto salio del prompt de ahora" o
+        "esto es de otro texto" — que con el numero de version solo no se puede
+        distinguir de "se aplico y no movio nada".
+      */
+      promptHash: huellaPrompt(prompt.body),
       /*
         El techo de fotos por lote, para que el boton del panel prometa las que
         de verdad se van a analizar.
@@ -131,7 +138,11 @@ export class ImageAiController {
   })
   async activePrompt() {
     const active = await this.prompts.active();
-    return { active, repositoryDefault: this.prompts.defaultBody() };
+    return {
+      active,
+      hash: huellaPrompt(active.body),
+      repositoryDefault: this.prompts.defaultBody(),
+    };
   }
 
   @Roles(Role.ADMIN)
@@ -141,8 +152,11 @@ export class ImageAiController {
     description:
       'Cada analisis guarda el numero de version con el que salio, asi que esta lista es lo que permite decir si un cambio mejoro o empeoro.',
   })
-  history() {
-    return this.prompts.list();
+  async history() {
+    const versiones = await this.prompts.list();
+    // Cada version con la huella de SU texto: es lo que permite cotejar una
+    // fila de resultados con la version que dice haberla producido.
+    return versiones.map((v) => ({ ...v, hash: huellaPrompt(v.body) }));
   }
 
   @Roles(Role.ADMIN)

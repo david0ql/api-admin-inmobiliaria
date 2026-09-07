@@ -122,6 +122,23 @@ export class ImageAnalysis extends BaseEntity {
   @Column({ name: 'prompt_version', type: 'int' })
   promptVersion: number;
 
+  /**
+   * Huella del TEXTO del prompt con el que salio esto, no de su numero.
+   *
+   * `promptVersion` dice con que version se pregunto; esto dice con que texto.
+   * No son lo mismo: la version es una indireccion que puede cambiar de
+   * contenido —nada impide editar el `body` de una version ya usada, y la v1 se
+   * siembra de un fichero del repositorio que viaja con el codigo—, y sobre
+   * todo no distingue "el prompt se aplico y no cambio nada" de "el prompt no
+   * se aplico", que es exactamente la duda que aparece al afinarlo.
+   *
+   * Nula en los analisis anteriores a esta columna. Es honesto: no significa
+   * que no hubiera texto, significa que no se apunto cual.
+   */
+  @ApiPropertyOptional({ nullable: true, example: 'a3f1c09b7e2d5480' })
+  @Column({ name: 'prompt_hash', type: 'varchar', length: 16, nullable: true })
+  promptHash: string | null;
+
   @ApiProperty({ example: 'gpt-4.1-mini' })
   @Column({ type: 'varchar', length: 80 })
   model: string;

@@ -21,7 +21,7 @@ import { assertCanMutate, assertSameBranch } from '../iam/scope';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
 import { ImageAnalysis } from './domain/image-analysis.entity';
 import { ImageAlbumAnalysis } from './domain/image-album-analysis.entity';
-import { ImagePromptService } from './image-prompt.service';
+import { huellaPrompt, ImagePromptService } from './image-prompt.service';
 import { parseAnalysisResponse } from './image-analysis.contract';
 import type {
   AlbumJudgement,
@@ -275,9 +275,12 @@ export class ImageAnalysisService {
     }
 
     const batchId = randomUUID();
+    // La huella del texto EXACTO que se mando, calculada una vez por lote.
+    const promptHash = huellaPrompt(prompt.body);
     const analyzed = await this.guardar(cargadas, parsed.images, {
       batchId,
       promptVersion: prompt.version,
+      promptHash,
       model: respuesta.model,
       actor,
     });
@@ -285,6 +288,7 @@ export class ImageAnalysisService {
       ? await this.guardarAlbum(propertyId, cargadas, parsed.album, {
           batchId,
           promptVersion: prompt.version,
+          promptHash,
           model: respuesta.model,
           actor,
           property,
@@ -403,6 +407,7 @@ export class ImageAnalysisService {
     ctx: {
       batchId: string;
       promptVersion: number;
+      promptHash: string;
       model: string;
       actor: AuthenticatedActor;
     },
@@ -439,6 +444,7 @@ export class ImageAnalysisService {
         privacy: juicio.privacy,
         usable: juicio.usable,
         promptVersion: ctx.promptVersion,
+        promptHash: ctx.promptHash,
         model: ctx.model,
         batchId: ctx.batchId,
         metrics: {
@@ -477,6 +483,7 @@ export class ImageAnalysisService {
     ctx: {
       batchId: string;
       promptVersion: number;
+      promptHash: string;
       model: string;
       actor: AuthenticatedActor;
       property: Property;
@@ -525,6 +532,7 @@ export class ImageAnalysisService {
         missing: this.calcularQueFalta(ctx.property, ctx.rooms),
         summary: album.summary || null,
         promptVersion: ctx.promptVersion,
+        promptHash: ctx.promptHash,
         model: ctx.model,
         createdByAgentId: ctx.actor.id,
       }),

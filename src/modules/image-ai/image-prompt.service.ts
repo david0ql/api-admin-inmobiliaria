@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { readFileSync } from 'node:fs';
@@ -7,6 +8,29 @@ import { ImagePrompt } from './domain/image-prompt.entity';
 
 /** Techo del prompt. Ver el comentario de `create`. */
 const MAX_LARGO = 20_000;
+
+/**
+ * La huella del texto con el que se pregunto.
+ *
+ * Existe porque el numero de version no contesta la pregunta que se hace quien
+ * afina un prompt. Cuando alguien edita, guarda y ve los mismos resultados, hay
+ * dos explicaciones —"se aplico y no movio nada" y "no se aplico"— y son
+ * opuestas: una dice que el cambio no sirve y la otra que hay un fallo. Con el
+ * numero de version las dos se ven igual. Con la huella no: o coincide con la
+ * del texto activo o no coincide, y ahi se acaba la duda.
+ *
+ * Y hace falta ademas porque la version es una indireccion. Nada en el esquema
+ * impide que alguien cambie el `body` de una version ya usada, y la version 1
+ * se siembra desde un fichero del repositorio que cambia con el codigo: "los
+ * resultados de la v1" puede querer decir textos distintos en dos despliegues.
+ * La huella no depende de esa indireccion — es el texto mismo.
+ *
+ * Dieciseis caracteres de un SHA-256: de sobra para lo que se le pide, que es
+ * distinguir dos textos, no resistir a nadie. No es un secreto ni protege nada.
+ */
+export function huellaPrompt(body: string): string {
+  return createHash('sha256').update(body).digest('hex').slice(0, 16);
+}
 
 /**
  * El prompt del analisis, editable desde el panel y con marcha atras.

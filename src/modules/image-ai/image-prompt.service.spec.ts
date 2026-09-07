@@ -1,4 +1,4 @@
-import { ImagePromptService } from './image-prompt.service';
+import { huellaPrompt, ImagePromptService } from './image-prompt.service';
 import type { ImagePrompt } from './domain/image-prompt.entity';
 
 /**
@@ -112,6 +112,29 @@ describe('ImagePromptService: de donde sale el prompt', () => {
 
     expect(activa.version).toBe(2);
     expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  /*
+    La huella existe para contestar lo que el numero de version no contesta:
+    con que TEXTO se produjo un resultado. Dos casos que el numero confunde y
+    ella separa — un texto editado bajo la misma version, y dos versiones
+    distintas que dicen lo mismo.
+  */
+  describe('huellaPrompt', () => {
+    it('cambia si cambia el texto, aunque la version sea la misma', () => {
+      expect(huellaPrompt('analiza las fotos')).not.toBe(
+        huellaPrompt('analiza las fotos.'),
+      );
+    });
+
+    it('es la misma para el mismo texto, aunque la version sea otra', () => {
+      expect(huellaPrompt('mismo texto')).toBe(huellaPrompt('mismo texto'));
+    });
+
+    it('cabe en la columna', () => {
+      expect(huellaPrompt('x')).toHaveLength(16);
+      expect(huellaPrompt('x')).toMatch(/^[0-9a-f]{16}$/);
+    });
   });
 
   it('el texto de fabrica sale del fichero y trae el contrato dentro', () => {
