@@ -123,4 +123,8 @@ export class Appointment extends BaseEntity {
   @ApiPropertyOptional({ nullable: true })
   @Column({ type: 'text', nullable: true })
   outcome: string | null;
+
+  /** Hash SHA-256 del comprobante entregado al visitante al agendar. */
+  @Column({ type: 'varchar', length: 64, nullable: true, select: false })
+  publicAccessTokenHash: string | null;
 }

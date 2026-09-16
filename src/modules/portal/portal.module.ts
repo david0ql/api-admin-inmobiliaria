@@ -20,6 +20,9 @@ import { PortalAuthController } from './portal-auth.controller';
 import { PortalService } from './portal.service';
 import { PortalController } from './portal.controller';
 import { PortalAdminController } from './portal-admin.controller';
+import { PropertyChangeRequest, PortalChangeSettings } from './domain/property-change-request.entity';
+import { PropertyChangesService } from './property-changes.service';
+import { PropertyChangesAdminController } from './property-changes-admin.controller';
 
 /**
  * El portal del propietario: una cuenta sobre la ficha de cliente que ya
@@ -41,6 +44,8 @@ import { PortalAdminController } from './portal-admin.controller';
       Appointment,
       Agent,
       ConsignmentRequest,
+      PropertyChangeRequest,
+      PortalChangeSettings,
     ]),
     PassportModule,
     JwtModule.register({}),
@@ -49,8 +54,8 @@ import { PortalAdminController } from './portal-admin.controller';
     MediaModule,
     ActivityModule,
   ],
-  controllers: [PortalAuthController, PortalController, PortalAdminController],
-  providers: [ClientJwtStrategy, PortalAuthService, PortalService],
+  controllers: [PortalAuthController, PortalController, PortalAdminController, PropertyChangesAdminController],
+  providers: [ClientJwtStrategy, PortalAuthService, PortalService, PropertyChangesService],
   exports: [PortalAuthService],
 })
 export class PortalModule {}

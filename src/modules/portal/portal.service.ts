@@ -195,6 +195,16 @@ export class PortalService {
         .filter((file) => file.kind === 'DOCUMENT')
         .map((file) => ({ docType: file.docType ?? null })),
       photos: request.files.filter((file) => file.kind === 'PHOTO').length,
+      // El dueño puede comprobar exactamente qué subió. Las fotos ya se
+      // guardan como URLs públicas; de los documentos solo se entrega nombre
+      // y posición, nunca una ruta privada.
+      files: request.files.map((file, index) => ({
+        index,
+        kind: file.kind,
+        docType: file.docType ?? null,
+        originalName: file.originalName,
+        url: file.kind === 'PHOTO' ? file.url ?? null : null,
+      })),
       propertyId: request.propertyId,
       createdAt: request.createdAt,
     }));

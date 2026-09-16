@@ -685,13 +685,9 @@ function fullView(p: PublicProperty) {
     tieneVideo: Boolean(p.videoUrl),
     tieneRecorrido360: Boolean(p.tourUrl),
     observaciones: p.observations?.trim()?.slice(0, 1200) ?? null,
-    asesor: p.agent
-      ? {
-          nombre: p.agent.fullName,
-          telefono: p.agent.cellPhone,
-          whatsapp: p.agent.hasWhatsapp,
-        }
-      : null,
+    // El contacto se revela al visitante únicamente después de que el equipo
+    // confirme su cita, nunca dentro del contexto general del asistente.
+    asesor: null,
   };
 }
 

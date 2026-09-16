@@ -219,7 +219,7 @@ export class CreateConsignmentDto {
 
   @ApiProperty()
   @IsNumber()
-  @Min(0)
+  @Min(1000000)
   @asNumber()
   salePrice: number;
 

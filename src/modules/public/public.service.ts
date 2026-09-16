@@ -55,6 +55,8 @@ import {
 import type { BookVisitDto, CreateConsignmentDto } from './dto/consignment.dto';
 import type { SearchPublicProjectsDto } from './dto/public-projects.dto';
 import type { SearchPublicPropertiesDto } from './dto/public-search.dto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { resolve4, resolveMx } from 'node:dns/promises';
 
 /** Solo se enseña fuera lo publicado; el resto ni existe para la web. */
 const VISIBLE = [PublicationStatus.ACTIVE, PublicationStatus.OUTSTANDING];
@@ -78,6 +80,15 @@ export type PublicFamilySummary = Awaited<
 
 /** Cada cuanto se vuelve a leer el grupo del que se rota. */
 const POOL_TTL_MS = 10 * 60 * 1000;
+
+const sha256 = (value: string) =>
+  createHash('sha256').update(value).digest('hex');
+
+function safeToken(value: string, expectedHex: string): boolean {
+  const actual = Buffer.from(sha256(value), 'hex');
+  const expected = Buffer.from(expectedHex, 'hex');
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
 
 /**
  * Cuantos ordenes distintos se dejan hechos.
@@ -118,9 +129,7 @@ export interface PublicAgent {
   photoUrl: string | null;
 }
 
-export type PublicProperty = PublicPropertyShape & {
-  agent: PublicAgent | null;
-};
+export type PublicProperty = PublicPropertyShape & { agent: null };
 
 /** Proyecto de cara al listado: la familia mas lo que resume su oferta. */
 export type PublicFamily = PublicFamilyRef & {
@@ -650,7 +659,7 @@ export class PublicService {
     const property = await this.loadPublicProperty(code);
     return {
       ...publicProperty(property),
-      agent: await this.publicAgent(property.assignedAgentId),
+      agent: null,
     };
   }
 
@@ -694,43 +703,6 @@ export class PublicService {
       throw new NotFoundException(`Inmueble ${code} no encontrado`);
 
     return property;
-  }
-
-  /**
-   * La tarjeta de contacto del asesor a cargo.
-   *
-   * No se resuelve con un `leftJoinAndSelect` a proposito: la relacion traeria
-   * la fila entera —rol, estado, ultimo acceso— a una respuesta sin token. Se
-   * pide aparte y se recorta a los cinco campos que un visitante necesita para
-   * llamar. Si el asesor ya no esta activo no se enseña a nadie, y la ficha cae
-   * en el contacto de la agencia.
-   */
-  private async publicAgent(
-    agentId: string | null,
-  ): Promise<PublicAgent | null> {
-    if (!agentId) return null;
-
-    const agent = await this.agents.findOne({
-      where: { id: agentId, status: AgentStatus.ACTIVE },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        cellPhone: true,
-        hasWhatsapp: true,
-        photoUrl: true,
-      },
-    });
-    if (!agent) return null;
-
-    return {
-      fullName: agent.fullName,
-      email: agent.email,
-      cellPhone: agent.cellPhone,
-      hasWhatsapp: agent.hasWhatsapp,
-      photoUrl: agent.photoUrl,
-    };
   }
 
   /** Otras unidades del mismo proyecto: mismo sitio, otra medida. */
@@ -1126,6 +1098,7 @@ export class PublicService {
         );
       }
 
+      const accessToken = randomBytes(32).toString('base64url');
       const appointment = await manager.save(
         manager.create(Appointment, {
           branchId: property.branchId,
@@ -1138,6 +1111,7 @@ export class PublicService {
           clientId: client.id,
           propertyId: property.id,
           notes: dto.message?.trim() ?? null,
+          publicAccessTokenHash: sha256(accessToken),
         }),
       );
 
@@ -1156,11 +1130,51 @@ export class PublicService {
         startsAt: appointment.startsAt,
         endsAt: appointment.endsAt,
         propertyCode: property.code,
+        accessToken,
         message:
           'Visita agendada. Un asesor te confirmará por teléfono antes de la cita.',
         ip,
       };
     });
+  }
+
+  /** Contacto del asesor, únicamente para quien agendó y tras confirmación. */
+  async visitContact(appointmentId: string, accessToken: string) {
+    const appointment = await this.appointments
+      .createQueryBuilder('appointment')
+      .addSelect('appointment.publicAccessTokenHash')
+      .where('appointment.id = :appointmentId', { appointmentId })
+      .getOne();
+    if (!appointment?.publicAccessTokenHash || !safeToken(accessToken, appointment.publicAccessTokenHash)) {
+      throw new NotFoundException('Visita no encontrada');
+    }
+    if (appointment.status !== AppointmentStatus.CONFIRMED) {
+      return { confirmed: false as const };
+    }
+    const agent = await this.agents.findOne({
+      where: { id: appointment.agentId, status: AgentStatus.ACTIVE },
+      loadEagerRelations: false,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        cellPhone: true,
+        hasWhatsapp: true,
+        photoUrl: true,
+      },
+    });
+    if (!agent) return { confirmed: true as const, agent: null };
+    return {
+      confirmed: true as const,
+      agent: {
+        fullName: agent.fullName,
+        email: agent.email,
+        cellPhone: agent.cellPhone,
+        hasWhatsapp: agent.hasWhatsapp,
+        photoUrl: agent.photoUrl,
+      },
+    };
   }
 
   // --- consignaciones ----------------------------------------------------
@@ -1257,6 +1271,29 @@ export class PublicService {
     return this.availability.calendar(from, to, {
       minLeadHours: await this.bookingSettings.defaultLeadHours(),
     });
+  }
+
+  /**
+   * Comprueba que el dominio puede recibir correo. No intenta averiguar si una
+   * persona concreta tiene cuenta: eso sería poco fiable y convertiría este
+   * endpoint en una herramienta para enumerar buzones ajenos.
+   */
+  async emailDomain(email: string): Promise<{ valid: boolean }> {
+    const domain = email.trim().toLowerCase().split('@')[1];
+    if (!domain || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)) {
+      return { valid: false };
+    }
+    try {
+      const mx = await resolveMx(domain);
+      if (mx.length) return { valid: true };
+    } catch {
+      // RFC permite entregar por A/AAAA cuando no hay MX.
+    }
+    try {
+      return { valid: (await resolve4(domain)).length > 0 };
+    } catch {
+      return { valid: false };
+    }
   }
 
   private async defaultPlacement(): Promise<{

@@ -7,6 +7,7 @@ import {
   ParseIntPipe,
   ParseUUIDPipe,
   Post,
+  Patch,
   Req,
   Res,
   UploadedFiles,
@@ -31,6 +32,8 @@ import { ClientAuthGuard, CurrentClient } from './client-auth.guard';
 import type { AuthenticatedClient } from './client-jwt.strategy';
 import { PortalService } from './portal.service';
 import { PortalConsignmentDto } from './dto/portal.dto';
+import { PortalPropertyUpdateDto } from './dto/portal.dto';
+import { PropertyChangesService } from './property-changes.service';
 
 /**
  * El portal del propietario.
@@ -51,6 +54,7 @@ export class PortalController {
     private readonly publicService: PublicService,
     private readonly storage: StorageService,
     private readonly gate: ImageGateService,
+    private readonly changes: PropertyChangesService,
   ) {}
 
   @Get('me')
@@ -75,6 +79,36 @@ export class PortalController {
   @ApiOperation({ summary: 'Sus solicitudes de consignación y su estado' })
   requests(@CurrentClient() client: AuthenticatedClient) {
     return this.portal.requests(client.id, client.email || null);
+  }
+
+  @Get('property-changes')
+  propertyChanges(@CurrentClient() client: AuthenticatedClient) {
+    return this.changes.own(client.id);
+  }
+
+  @Post('properties/:id/changes')
+  proposeChange(
+    @CurrentClient() client: AuthenticatedClient,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PortalPropertyUpdateDto,
+  ) {
+    return this.changes.proposeUpdate(client.id, id, dto);
+  }
+
+  @Post('properties/:id/archive')
+  proposeArchive(
+    @CurrentClient() client: AuthenticatedClient,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.changes.proposeArchive(client.id, id);
+  }
+
+  @Patch('properties/:id/deactivate')
+  deactivate(
+    @CurrentClient() client: AuthenticatedClient,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.changes.deactivate(client.id, id);
   }
 
   @Get('requests/:id/documents/:index')

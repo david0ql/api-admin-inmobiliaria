@@ -5,12 +5,15 @@ import {
   IsBoolean,
   IsEmail,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   Length,
   Matches,
   MaxLength,
   MinLength,
+  Min,
+  Max,
 } from 'class-validator';
 
 /**
@@ -144,3 +147,27 @@ export class PortalConsignmentDto extends OmitType(CreateConsignmentDto, [
   'ownerPhone',
   'captchaToken',
 ] as const) {}
+
+/** Campos que el propietario puede proponer cambiar; los internos no entran. */
+export class PortalPropertyUpdateDto {
+  @IsOptional() @IsString() @MaxLength(300) address?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) salePrice?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) rentPrice?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) maintenanceFee?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) area?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) builtArea?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) privateArea?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(30) bedrooms?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(30) bathrooms?: number;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(30) garages?: number;
+}
+
+export class ReviewPropertyChangeDto {
+  @IsBoolean() approved: boolean;
+  @IsOptional() @IsString() @MaxLength(1000) resolution?: string;
+}
+
+export class PortalChangeSettingsDto {
+  @Type(() => Number) @IsInt() @Min(0) @Max(1440)
+  propagationMinutes: number;
+}

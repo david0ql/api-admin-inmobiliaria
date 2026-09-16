@@ -36,9 +36,8 @@ import { SearchPublicPropertiesDto } from './dto/public-search.dto';
  * Todo va sin token y con limite de trafico. Solo se expone lo publicado y
  * nunca datos internos — ni etapa del embudo, ni notas, ni cartera.
  *
- * La unica excepcion es la tarjeta de contacto del asesor a cargo en la ficha,
- * y va recortada a mano a nombre, correo, movil y foto: es informacion que la
- * agencia ya publica en cada anuncio. Ver `publicAgent` en PublicService.
+ * El contacto del asesor solo se entrega con el comprobante de una cita
+ * confirmada; la ficha pública no lo incluye.
  */
 @ApiTags('public')
 @Public()
@@ -55,6 +54,14 @@ export class PublicController {
     private readonly fx: ExchangeRateService,
     private readonly geocode: GeocodeService,
   ) {}
+
+  @Post('email-domain')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Comprueba que el dominio del correo puede recibir mensajes' })
+  emailDomain(@Body('email') email: string) {
+    return this.service.emailDomain(String(email ?? ''));
+  }
 
   // --- inmuebles ---------------------------------------------------------
 
@@ -284,6 +291,18 @@ export class PublicController {
   async bookVisit(@Body() dto: BookVisitDto, @Req() req: Request) {
     await this.captcha.verify(dto.captchaToken, ip(req));
     return this.service.bookVisit(dto, ip(req));
+  }
+
+  @Get('visits/:id/contact')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Contacto del asesor cuando la visita ya fue confirmada',
+  })
+  visitContact(
+    @Param('id') id: string,
+    @Query('token') token: string,
+  ) {
+    return this.service.visitContact(id, token ?? '');
   }
 
   // --- consignaciones ----------------------------------------------------
