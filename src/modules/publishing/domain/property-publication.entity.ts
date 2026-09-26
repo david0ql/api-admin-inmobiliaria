@@ -11,6 +11,16 @@ export enum PublicationState {
   /** El portal rechazo el anuncio: falta de fotos, datos incompletos, cupo. */
   REJECTED = 'REJECTED',
   PAUSED = 'PAUSED',
+  /** Retirado del portal por nosotros: el anuncio ya no esta arriba. */
+  REMOVED = 'REMOVED',
+}
+
+/** Lo que falta por hacer en el portal, si algo. */
+export enum SyncAction {
+  /** Crear el anuncio, o actualizarlo si ya existe. */
+  UPSERT = 'UPSERT',
+  /** Retirarlo. */
+  REMOVE = 'REMOVE',
 }
 
 /**
@@ -67,4 +77,69 @@ export class PropertyPublication extends BaseEntity {
   @ApiPropertyOptional({ nullable: true, description: 'Ficha en el portal' })
   @Column({ type: 'text', nullable: true })
   externalUrl: string | null;
+
+  // --- sincronizacion ----------------------------------------------------
+  //
+  // La fila hace de cola: `pendingAction` dice que hay que hacer y
+  // `nextAttemptAt` cuando. Una tabla de trabajos aparte duplicaria el estado
+  // —¿que manda si la cola dice "enviar" y la publicacion "retirado"?— y la API
+  // corre en un solo proceso, asi que no hace falta un broker.
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Id del anuncio en el portal',
+  })
+  @Column({ name: 'external_id', type: 'varchar', length: 120, nullable: true })
+  externalId: string | null;
+
+  @ApiPropertyOptional({ enum: SyncAction, nullable: true })
+  @Column({
+    name: 'pending_action',
+    type: 'enum',
+    enum: SyncAction,
+    enumName: 'publication_sync_action_enum',
+    nullable: true,
+  })
+  pendingAction: SyncAction | null;
+
+  /**
+   * Cuando toca el proximo intento. Nulo con accion pendiente significa "en
+   * espera": el inmueble todavia no se puede publicar (borrador, sin fotos) y
+   * se reintenta solo cuando alguien lo edita.
+   */
+  @ApiPropertyOptional({ nullable: true })
+  @Column({ name: 'next_attempt_at', type: 'timestamptz', nullable: true })
+  nextAttemptAt: Date | null;
+
+  @ApiProperty()
+  @Column({ type: 'int', default: 0 })
+  attempts: number;
+
+  /**
+   * Operacion en curso en un portal asincrono (Fincaraiz, Metrocuadrado): el
+   * envio se acepta y el resultado llega despues, por callback o consultando.
+   */
+  @Column({
+    name: 'transaction_id',
+    type: 'varchar',
+    length: 120,
+    nullable: true,
+  })
+  transactionId: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @Column({ name: 'last_synced_at', type: 'timestamptz', nullable: true })
+  lastSyncedAt: Date | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @Column({ name: 'last_error', type: 'text', nullable: true })
+  lastError: string | null;
+
+  /**
+   * Huella de lo que se envio la ultima vez. Si la ficha cambia, la huella
+   * actual deja de coincidir y el panel ofrece "Actualizar": asi se sabe que
+   * anuncios estan desfasados sin reenviar nada.
+   */
+  @Column({ name: 'synced_hash', type: 'varchar', length: 64, nullable: true })
+  syncedHash: string | null;
 }

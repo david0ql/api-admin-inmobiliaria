@@ -290,6 +290,45 @@ export const envSchema = z.object({
     .min(30_000)
     .max(600_000)
     .default(180_000),
+
+  // --- sincronizacion con portales ----------------------------------------
+
+  /**
+   * Clave con la que se cifran en base las credenciales de cada portal (API
+   * keys, usuarios y claves de integracion). 32 bytes en base64:
+   * `openssl rand -base64 32`.
+   *
+   * Opcional para que la API arranque sin ella, pero sin clave no se pueden
+   * guardar credenciales y ningun portal sincroniza. Si se pierde o se cambia,
+   * las credenciales guardadas dejan de poder leerse y hay que volver a
+   * introducirlas: no hay forma de recuperarlas, que es justo la idea.
+   */
+  PORTALS_SECRET_KEY: z
+    .string()
+    .optional()
+    .refine(
+      (v) => !v || Buffer.from(v, 'base64').length === 32,
+      'PORTALS_SECRET_KEY debe ser 32 bytes en base64 (openssl rand -base64 32)',
+    ),
+
+  /**
+   * URL publica de ESTA API, sin prefijo. Es a donde los portales asincronos
+   * (Fincaraiz, Metrocuadrado) mandan el resultado de cada publicacion y desde
+   * donde los agregadores descargan el feed. Tiene que ser alcanzable desde
+   * internet.
+   */
+  PUBLIC_API_URL: z.string().default('https://api-inmobiliaria.nordikhat.com'),
+
+  /** Cada cuanto revisa la cola de envios a portales, en segundos. */
+  PORTALS_SYNC_INTERVAL_S: z.coerce.number().int().min(5).max(3600).default(20),
+
+  /**
+   * Contacto por defecto en los avisos publicados en portales, cuando la
+   * conexion no fija uno propio. Si se deja vacio, cada conector cae en el
+   * correo/telefono del asesor del inmueble.
+   */
+  PORTALS_CONTACT_EMAIL: z.string().optional(),
+  PORTALS_CONTACT_PHONE: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

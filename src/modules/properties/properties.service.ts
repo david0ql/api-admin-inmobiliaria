@@ -293,8 +293,10 @@ export class PropertiesService {
     assertSameBranch(actor, property.branchId);
     assertCanMutate(actor, property.assignedAgentId, 'este inmueble');
     // Borrado logico: la ficha sigue disponible para el historico comercial,
-    // y por eso sus fotos tampoco se tocan.
-    await this.repo.softDelete(id);
+    // y por eso sus fotos tampoco se tocan. `softRemove` y no `softDelete`:
+    // el segundo no le dice a los suscriptores QUE inmueble se borro, y la
+    // cola de portales lo necesita para retirarlo de donde este publicado.
+    await this.repo.softRemove(property);
     // Si era el ultimo lote de su tramo, esa tipología ya no clasifica nada.
     await this.autoUnitTypes.release(property.unitTypeId);
   }

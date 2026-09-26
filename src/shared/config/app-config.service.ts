@@ -170,4 +170,17 @@ export class AppConfigService {
       timeoutMs: this.get('RETOUCH_TIMEOUT_MS'),
     };
   }
+
+  /** Sincronizacion con portales inmobiliarios. */
+  get portals() {
+    const key = this.get('PORTALS_SECRET_KEY');
+    return {
+      secretKey: key ? Buffer.from(key, 'base64') : null,
+      publicApiUrl: this.get('PUBLIC_API_URL').replace(/\/$/, ''),
+      apiPrefix: this.get('API_PREFIX'),
+      intervalMs: this.get('PORTALS_SYNC_INTERVAL_S') * 1000,
+      contactEmail: this.get('PORTALS_CONTACT_EMAIL') || null,
+      contactPhone: this.get('PORTALS_CONTACT_PHONE') || null,
+    };
+  }
 }
