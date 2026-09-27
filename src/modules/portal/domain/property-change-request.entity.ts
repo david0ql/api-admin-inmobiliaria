@@ -3,6 +3,7 @@ import { BaseEntity } from '../../../shared/database/base.entity';
 
 export enum PropertyChangeAction {
   UPDATE = 'UPDATE',
+  DEACTIVATE = 'DEACTIVATE',
   ARCHIVE = 'ARCHIVE',
 }
 

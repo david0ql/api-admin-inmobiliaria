@@ -70,11 +70,24 @@ export class PropertyChangesService implements OnModuleInit, OnModuleDestroy {
     }));
   }
 
-  /** Única acción inmediata solicitada por el propietario. */
-  async deactivate(clientId: string, propertyId: string) {
-    await this.ownedProperty(clientId, propertyId);
-    await this.properties.update({ id: propertyId }, { publicationStatus: PublicationStatus.INACTIVE });
-    return { publicationStatus: PublicationStatus.INACTIVE };
+  /**
+   * Inactivar tampoco es inmediato: el propietario lo pide y el equipo lo
+   * aprueba. Bajar un aviso de la web es tan visible como cambiarle el precio,
+   * y quien lo pide desde el portal no siempre sabe que hay una visita
+   * agendada encima.
+   */
+  async proposeDeactivate(clientId: string, propertyId: string) {
+    const property = await this.ownedProperty(clientId, propertyId);
+    await this.ensureNoPending(clientId, propertyId);
+    if (property.publicationStatus === PublicationStatus.INACTIVE) {
+      throw new ConflictException('El inmueble ya está inactivo');
+    }
+    return this.changes.save(this.changes.create({
+      clientId, propertyId, action: PropertyChangeAction.DEACTIVATE,
+      status: PropertyChangeStatus.PENDING,
+      beforeValues: snapshot(property),
+      afterValues: { publicationStatus: PublicationStatus.INACTIVE },
+    }));
   }
 
   async review(id: string, approved: boolean, actorId: string, resolution?: string) {
@@ -114,6 +127,11 @@ export class PropertyChangesService implements OnModuleInit, OnModuleDestroy {
     for (const change of due) {
       if (change.action === PropertyChangeAction.ARCHIVE) {
         await this.properties.softDelete(change.propertyId);
+      } else if (change.action === PropertyChangeAction.DEACTIVATE) {
+        await this.properties.update(
+          { id: change.propertyId },
+          { publicationStatus: PublicationStatus.INACTIVE },
+        );
       } else {
         const allowed: Record<string, unknown> = {};
         for (const key of EDITABLE) if (change.afterValues[key] !== undefined) allowed[key] = change.afterValues[key];

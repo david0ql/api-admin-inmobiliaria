@@ -431,6 +431,9 @@ export class ImageAnalysisService {
       reglas,
     });
 
+    // Con las estancias ya clasificadas, la fachada sube al primer hueco.
+    await this.fachadaPrimero(propertyId);
+
     const album = albumes.length
       ? await this.guardarAlbum(propertyId, emparejados, albumes, {
           batchId,
@@ -799,6 +802,61 @@ export class ImageAnalysisService {
    * fila nueva. Esa es justo la diferencia que hace posible comparar si un
    * cambio del prompt mejoro o empeoro.
    */
+  /**
+   * La fachada, al primer hueco de la galeria.
+   *
+   * La portada se deriva del orden, y el orden venia de como se subieron las
+   * fotos: el resultado era una tarjeta abierta por el rincon de un bano o por
+   * media pared de cocina. Quien recorre un listado decide en la primera foto
+   * si sigue mirando, y lo que busca ahi es reconocer el edificio.
+   *
+   * No se inventa nada: se usa la estancia que el modelo ya clasifico. Si
+   * ninguna foto es fachada —un apartamento interior fotografiado por dentro—,
+   * se intenta con el exterior, y si tampoco hay, el orden se queda como estaba.
+   * Entre varias fachadas manda la que el modelo vio mas clara, y a igualdad de
+   * confianza la que mejor puntuo como portada.
+   */
+  private async fachadaPrimero(propertyId: string): Promise<void> {
+    const images = await this.images.find({
+      where: { propertyId },
+      order: { position: 'ASC' },
+    });
+    if (images.length < 2) return;
+
+    const juicios = await this.analyses.find({
+      where: { propertyImageId: In(images.map((i) => i.id)) },
+      order: { createdAt: 'ASC' },
+    });
+    // El ultimo juicio de cada foto es el que vale: una foto se puede reanalizar.
+    const porImagen = new Map(juicios.map((j) => [j.propertyImageId, j]));
+
+    const candidatas = (kind: RoomKind) =>
+      images
+        .filter((image) => porImagen.get(image.id)?.room === kind)
+        .sort((a, b) => {
+          const ja = porImagen.get(a.id);
+          const jb = porImagen.get(b.id);
+          return (
+            (jb?.roomConfidence ?? 0) - (ja?.roomConfidence ?? 0) ||
+            (jb?.coverScore ?? 0) - (ja?.coverScore ?? 0)
+          );
+        });
+
+    const elegida =
+      candidatas(RoomKind.FACADE)[0] ?? candidatas(RoomKind.EXTERIOR)[0];
+    if (!elegida || elegida.id === images[0].id) return;
+
+    const orden = [elegida, ...images.filter((i) => i.id !== elegida.id)];
+    await this.images.manager.transaction(async (manager) => {
+      for (const [index, image] of orden.entries()) {
+        await manager.update(PropertyImage, { id: image.id }, { position: index + 1 });
+      }
+    });
+    this.logger.log(
+      `Galeria de ${propertyId}: la fachada pasa al primer hueco (${elegida.id})`,
+    );
+  }
+
   private async guardar(
     emparejados: { cargada: Cargada; juicio: ImageJudgement }[],
     ctx: {

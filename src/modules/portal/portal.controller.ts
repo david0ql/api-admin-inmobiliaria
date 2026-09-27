@@ -7,7 +7,6 @@ import {
   ParseIntPipe,
   ParseUUIDPipe,
   Post,
-  Patch,
   Req,
   Res,
   UploadedFiles,
@@ -103,12 +102,12 @@ export class PortalController {
     return this.changes.proposeArchive(client.id, id);
   }
 
-  @Patch('properties/:id/deactivate')
-  deactivate(
+  @Post('properties/:id/deactivate')
+  proposeDeactivate(
     @CurrentClient() client: AuthenticatedClient,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.changes.deactivate(client.id, id);
+    return this.changes.proposeDeactivate(client.id, id);
   }
 
   @Get('requests/:id/documents/:index')
