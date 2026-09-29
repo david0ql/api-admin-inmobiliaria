@@ -154,17 +154,37 @@ export class UnitTypesService {
           */
           minArea: num(tipologia.areaMin) ?? datos.minArea,
           maxArea: num(tipologia.areaMax) ?? datos.maxArea,
-          units: datos.units,
-          available: datos.available,
-          minPrice: datos.minPrice,
-          maxPrice: datos.maxPrice,
+          /*
+            La misma regla que las areas, ahora tambien para el dinero y el
+            inventario: manda lo escrito.
+
+            Es lo que permite vender obra nueva. Un proyecto sobre planos
+            anuncia "Tipo A, desde $320.000.000, quedan 14" sin que exista ni
+            una ficha de inmueble; un conjunto ya entregado no escribe nada y
+            sigue derivandolo de sus unidades, como siempre.
+          */
+          units: tipologia.unitsTotal ?? datos.units,
+          available: tipologia.unitsAvailable ?? datos.available,
+          minPrice: num(tipologia.priceFrom) ?? datos.minPrice,
+          maxPrice: num(tipologia.priceTo) ?? datos.maxPrice,
           position: tipologia.position,
           propertyId: datos.propertyId,
           coverUrl: datos.coverUrl,
           images: imagenes.get(tipologia.id) ?? [],
         };
       })
-      .filter((fila) => !publicOnly || fila.units > 0);
+      /*
+        Fuera de la web solo lo que tenga algo que enseñar.
+
+        Antes el corte era "que tenga unidades dadas de alta", y con eso una
+        tipologia de obra nueva —cuatro numeros escritos a mano y ni un inmueble
+        detras— no salia nunca. Ahora basta con que tenga unidades O un precio
+        escrito: las dos cosas son razones legitimas para anunciarla, y una
+        tipologia sin ninguna de las dos sigue sin tener nada que decir.
+      */
+      .filter(
+        (fila) => !publicOnly || fila.units > 0 || fila.minPrice !== null,
+      );
 
     /*
       Las unidades sin tipología van al final y en su propia fila. Callarlas

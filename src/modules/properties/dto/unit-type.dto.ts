@@ -83,6 +83,37 @@ export class CreateUnitTypeDto {
   @Min(0)
   builtArea?: number;
 
+  /*
+    La economia de la tipologia, para vender obra nueva sin dar de alta las
+    ciento veinte fichas de una torre. Si se deja en blanco, se sigue derivando
+    de las unidades que haya, que es como funcionan los conjuntos de hoy.
+  */
+  @ApiPropertyOptional({ description: 'Precio desde. En blanco, se deriva de las unidades' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  priceFrom?: number;
+
+  @ApiPropertyOptional({ description: 'Precio hasta' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  priceTo?: number;
+
+  @ApiPropertyOptional({ description: 'Cuántas unidades tiene esta tipología' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(5000)
+  unitsTotal?: number;
+
+  @ApiPropertyOptional({ description: 'Cuántas quedan por vender' })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(5000)
+  unitsAvailable?: number;
+
   @ApiPropertyOptional({ description: 'Orden en que se enseña; 0 primero' })
   @IsOptional()
   @IsInt()

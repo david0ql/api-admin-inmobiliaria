@@ -82,6 +82,46 @@ export class UnitType extends BaseEntity {
     exacta: el "Tipo A" de un edificio mide 58 m² en el segundo piso y 58,4 en
     el octavo. Para suelo, el rango ES la tipologia.
   */
+  /*
+    LA ECONOMIA DE LA TIPOLOGIA, cuando se escribe a mano.
+
+    Para vender obra nueva no se dan de alta las 120 fichas de inmueble de una
+    torre: se anuncian cuatro tipologias con su precio y sus unidades. Estas
+    columnas son lo que permite que un proyecto exista y se venda sin inventar
+    inmuebles.
+
+    Manda lo escrito, igual que con las areas: solo si no hay nada aqui se cae
+    a lo que digan las unidades dadas de alta. Por eso los conjuntos de hoy
+    —que no tienen nada escrito— siguen comportandose exactamente igual.
+  */
+  @ApiPropertyOptional({ nullable: true, description: 'Precio desde, escrito a mano' })
+  @Column({
+    name: 'price_from',
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    nullable: true,
+  })
+  priceFrom: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @Column({
+    name: 'price_to',
+    type: 'numeric',
+    precision: 14,
+    scale: 2,
+    nullable: true,
+  })
+  priceTo: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Cuántas unidades tiene esta tipología' })
+  @Column({ name: 'units_total', type: 'int', nullable: true })
+  unitsTotal: number | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Cuántas quedan por vender' })
+  @Column({ name: 'units_available', type: 'int', nullable: true })
+  unitsAvailable: number | null;
+
   @ApiPropertyOptional({ nullable: true })
   @Column({
     name: 'area_min',
