@@ -14,6 +14,7 @@ import {
   IsUUID,
   Length,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import { PageQueryDto } from '../../../shared/http/dto/page-query.dto';
 import { csvNumbers, csvStrings } from '../../../shared/http/query-params';
@@ -21,6 +22,7 @@ import {
   InterestRole,
   InterestStatus,
 } from '../domain/property-interest.entity';
+import { Role } from '../../iam/domain/role.enum';
 
 export class CreateClientDto {
   @ApiProperty()
@@ -237,4 +239,45 @@ export class SearchClientsDto extends PageQueryDto {
   @IsOptional()
   @IsString()
   openOnly?: string;
+}
+
+/**
+ * Alta de un embudo.
+ *
+ * `branchId` en `null` significa "de toda la empresa" y solo lo puede pedir
+ * quien ve todas las sedes; omitido, se resuelve con la sede del usuario o con
+ * la que tenga elegida en el selector. `visibleRoles` vacio significa "para
+ * todos", que es lo que se espera cuando nadie dice nada.
+ */
+export class CreatePipelineDto {
+  @ApiProperty({ example: 'Captación Cañaveral' })
+  @IsString()
+  @Length(2, 120)
+  name: string;
+
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  branchId?: string | null;
+
+  @ApiPropertyOptional({ enum: Role, isArray: true })
+  @IsOptional()
+  @IsArray()
+  @IsEnum(Role, { each: true })
+  visibleRoles?: Role[];
+}
+
+export class UpdatePipelineDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @Length(2, 120)
+  name?: string;
+
+  @ApiPropertyOptional({ enum: Role, isArray: true })
+  @IsOptional()
+  @IsArray()
+  @IsEnum(Role, { each: true })
+  visibleRoles?: Role[];
 }

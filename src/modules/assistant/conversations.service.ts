@@ -1,3 +1,4 @@
+import { applyBranchScope } from '../iam/scope';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, Repository, type SelectQueryBuilder } from 'typeorm';
@@ -219,6 +220,17 @@ export class ConversationsService {
       .addGroupBy('client.email')
       .addGroupBy('client.cell_phone')
       .orderBy('MAX(conversation.last_message_at)', 'DESC');
+
+    /*
+      Las conversaciones son de la sede del cliente con quien se hablo.
+
+      Faltaba, y era el unico listado del panel que no lo hacia: un coordinador
+      de Cabecera abria Conversaciones y leia los chats de los clientes de
+      Cañaveral —con su nombre, su correo y su telefono—. El cliente si tiene
+      sede, asi que se filtra por la suya y no por la conversacion, que no la
+      guarda.
+    */
+    applyBranchScope(qb, 'client.branch_id');
 
     this.aplicarFiltros(qb, filters);
 

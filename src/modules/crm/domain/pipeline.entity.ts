@@ -25,9 +25,33 @@ export class Pipeline extends BaseEntity {
   wasiId: number | null;
 
   @ApiProperty({ example: 'Clientes' })
-  @Index({ unique: true })
   @Column({ type: 'varchar', length: 120 })
   name: string;
+
+  /**
+   * De que sede es el embudo. En blanco, de toda la empresa.
+   *
+   * Un embudo describe COMO trabaja un equipo, y eso cambia de una oficina a
+   * otra: la de obra nueva vende sobre planos y la de usado hace visitas. Que
+   * todos vieran los tres embudos de la empresa obligaba a cada asesor a
+   * distinguir a ojo cuales eran los suyos.
+   */
+  @ApiPropertyOptional({ format: 'uuid', nullable: true })
+  @Index()
+  @Column({ name: 'branch_id', type: 'uuid', nullable: true })
+  branchId: string | null;
+
+  /**
+   * Que perfiles lo ven. Lista vacia: todos.
+   *
+   * Vacia y no "null" a proposito: el caso corriente es que un embudo lo vea
+   * todo el mundo, y con una lista vacia esa respuesta no necesita comprobar si
+   * el campo existe. Quien lo crea decide a quien se lo enseña, y quien no
+   * aparece no lo ve ni sabe que hay.
+   */
+  @ApiProperty({ type: [String], example: ['AGENT', 'COORDINATOR'] })
+  @Column({ name: 'visible_roles', type: 'jsonb', default: () => "'[]'::jsonb" })
+  visibleRoles: string[];
 
   @ApiProperty({ description: 'Embudo al que entran los leads sin clasificar' })
   @Column({ type: 'boolean', default: false })

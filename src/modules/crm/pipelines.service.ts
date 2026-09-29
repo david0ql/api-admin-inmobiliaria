@@ -7,7 +7,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Pipeline, PipelineStage } from './domain/pipeline.entity';
 import { Client } from './domain/client.entity';
-import { applyBranchScope, applyOwnershipScope } from '../iam/scope';
+import {
+  applyBranchScope,
+  applyOwnershipScope,
+  assertSameBranch,
+  resolveBranch,
+} from '../iam/scope';
+import { Role, seesAllBranches } from '../iam/domain/role.enum';
+import { RequestContext } from '../../shared/request-context/request-context';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
 
 export interface KanbanStage {
@@ -30,11 +37,128 @@ export class PipelinesService {
     @InjectRepository(Client) private readonly clients: Repository<Client>,
   ) {}
 
-  findAll(): Promise<Pipeline[]> {
-    return this.pipelines.find({
-      relations: { stages: true },
-      order: { position: 'ASC', stages: { position: 'ASC' } },
-    });
+  /**
+   * Los embudos que este usuario puede ver.
+   *
+   * Dos filtros, y los dos importan:
+   *
+   *  - Por SEDE: los de su oficina y los de la empresa (sin sede). La
+   *    administracion y la direccion las ven todas, y si tienen una puesta en el
+   *    selector, esa.
+   *  - Por PERFIL: los que le nombran, mas los que no nombran a nadie —que
+   *    significa "para todos"—. La administracion se salta este filtro: si no
+   *    viera los embudos que reparte, no podria repartirlos.
+   *
+   * Se resuelve en SQL y no filtrando en memoria: un embudo que no se puede ver
+   * tampoco debe viajar por la red.
+   */
+  findAll(actor: AuthenticatedActor): Promise<Pipeline[]> {
+    const qb = this.pipelines
+      .createQueryBuilder('pipeline')
+      .leftJoinAndSelect('pipeline.stages', 'stage')
+      .orderBy('pipeline.position', 'ASC')
+      .addOrderBy('stage.position', 'ASC');
+
+    if (seesAllBranches(actor.role as Role)) {
+      // Con una sede elegida en el selector, los suyos y los de la empresa.
+      const elegida = RequestContext.branchId();
+      if (elegida) {
+        qb.andWhere(
+          '(pipeline.branch_id = :elegida OR pipeline.branch_id IS NULL)',
+          { elegida },
+        );
+      }
+    } else {
+      qb.andWhere(
+        '(pipeline.branch_id = :propia OR pipeline.branch_id IS NULL)',
+        { propia: actor.branchId ?? null },
+      );
+      qb.andWhere(
+        `(jsonb_array_length(pipeline.visible_roles) = 0 OR pipeline.visible_roles ? :rol)`,
+        { rol: actor.role },
+      );
+    }
+
+    return qb.getMany();
+  }
+
+  /** Un embudo, comprobando que este usuario tenga derecho a verlo. */
+  async findVisible(id: string, actor: AuthenticatedActor): Promise<Pipeline> {
+    const visibles = await this.findAll(actor);
+    const suyo = visibles.find((p) => p.id === id);
+    if (!suyo) throw new NotFoundException(`Embudo ${id} no encontrado`);
+    return suyo;
+  }
+
+  /**
+   * Crea un embudo.
+   *
+   * Quien manda en una sede lo crea PARA su sede y no puede elegir otra; la
+   * administracion decide, y sin sede queda como embudo de empresa.
+   */
+  async create(
+    actor: AuthenticatedActor,
+    datos: { name: string; branchId?: string | null; visibleRoles?: string[] },
+  ): Promise<Pipeline> {
+    const deEmpresa =
+      seesAllBranches(actor.role as Role) && datos.branchId === null;
+    const branchId = deEmpresa
+      ? null
+      : resolveBranch(actor, datos.branchId ?? undefined);
+
+    const ultimo = await this.pipelines
+      .createQueryBuilder('pipeline')
+      .select('MAX(pipeline.position)', 'max')
+      .getRawOne<{ max: number | null }>();
+
+    return this.pipelines.save(
+      this.pipelines.create({
+        name: datos.name.trim(),
+        branchId,
+        visibleRoles: datos.visibleRoles ?? [],
+        position: (ultimo?.max ?? 0) + 1,
+        isDefault: false,
+      }),
+    );
+  }
+
+  /** Cambia nombre y visibilidad. La sede de un embudo no se mueve. */
+  async update(
+    id: string,
+    actor: AuthenticatedActor,
+    datos: { name?: string; visibleRoles?: string[] },
+  ): Promise<Pipeline> {
+    const embudo = await this.findVisible(id, actor);
+    assertSameBranch(actor, embudo.branchId);
+    if (datos.name !== undefined) embudo.name = datos.name.trim();
+    if (datos.visibleRoles !== undefined) {
+      embudo.visibleRoles = datos.visibleRoles;
+    }
+    return this.pipelines.save(embudo);
+  }
+
+  /**
+   * Retira un embudo.
+   *
+   * No se borra si tiene clientes dentro: esos clientes se quedarian sin
+   * embudo y sin etapa, o sea fuera de todos los tableros y de todos los
+   * informes, sin que nadie se entere.
+   */
+  async remove(id: string, actor: AuthenticatedActor): Promise<void> {
+    const embudo = await this.findVisible(id, actor);
+    assertSameBranch(actor, embudo.branchId);
+    if (embudo.isDefault) {
+      throw new BadRequestException(
+        'El embudo por defecto no se puede retirar: es donde entran los leads sin clasificar',
+      );
+    }
+    const dentro = await this.clients.count({ where: { pipelineId: id } });
+    if (dentro > 0) {
+      throw new BadRequestException(
+        `Tiene ${dentro} cliente(s) dentro. Muévelos a otro embudo antes de retirarlo`,
+      );
+    }
+    await this.pipelines.softDelete(id);
   }
 
   async findById(id: string): Promise<Pipeline> {
@@ -76,8 +200,13 @@ export class PipelinesService {
     pipelineId: string | undefined,
     actor: AuthenticatedActor,
   ): Promise<{ pipeline: Pipeline; stages: KanbanStage[] }> {
+    /*
+      El embudo pedido tiene que ser uno de los suyos. Antes bastaba con saber
+      su identificador: cualquiera con acceso al tablero podia pedir el embudo
+      de captacion de otra sede y ver sus columnas y sus conteos.
+    */
     const pipeline = pipelineId
-      ? await this.findById(pipelineId)
+      ? await this.findVisible(pipelineId, actor)
       : await this.findDefault();
 
     const qb = this.clients

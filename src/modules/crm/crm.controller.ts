@@ -24,6 +24,8 @@ import {
   ReassignClientDto,
   SearchClientsDto,
   UpdateClientDto,
+  CreatePipelineDto,
+  UpdatePipelineDto,
 } from './dto/client.dto';
 import { CurrentUser, Roles } from '../iam/decorators';
 import { Role } from '../iam/domain/role.enum';
@@ -50,9 +52,47 @@ export class CrmController {
   // --- embudos -----------------------------------------------------------
 
   @Get('pipelines')
-  @ApiOperation({ summary: 'Embudos con sus etapas' })
-  listPipelines() {
-    return this.pipelines.findAll();
+  @ApiOperation({ summary: 'Embudos que este usuario puede ver' })
+  listPipelines(@CurrentUser() actor: AuthenticatedActor) {
+    return this.pipelines.findAll(actor);
+  }
+
+  /*
+    Crear y repartir embudos es de quien manda sobre un equipo.
+
+    Un embudo describe como trabaja ese equipo, asi que lo define quien lo
+    dirige: la administracion para toda la empresa, la direccion y el
+    coordinador para su sede. Un asesor los usa; no los inventa.
+  */
+  @Post('pipelines')
+  @Roles(Role.ADMIN, Role.DIRECTOR, Role.COORDINATOR, Role.MANAGER)
+  @ApiOperation({ summary: 'Crea un embudo para una sede o para la empresa' })
+  createPipeline(
+    @CurrentUser() actor: AuthenticatedActor,
+    @Body() dto: CreatePipelineDto,
+  ) {
+    return this.pipelines.create(actor, dto);
+  }
+
+  @Patch('pipelines/:id')
+  @Roles(Role.ADMIN, Role.DIRECTOR, Role.COORDINATOR, Role.MANAGER)
+  @ApiOperation({ summary: 'Cambia el nombre o a qué perfiles se enseña' })
+  updatePipeline(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() actor: AuthenticatedActor,
+    @Body() dto: UpdatePipelineDto,
+  ) {
+    return this.pipelines.update(id, actor, dto);
+  }
+
+  @Delete('pipelines/:id')
+  @Roles(Role.ADMIN, Role.DIRECTOR, Role.COORDINATOR, Role.MANAGER)
+  @ApiOperation({ summary: 'Retira un embudo vacío' })
+  removePipeline(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() actor: AuthenticatedActor,
+  ) {
+    return this.pipelines.remove(id, actor);
   }
 
   @Get('pipelines/kanban')
