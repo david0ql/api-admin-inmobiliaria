@@ -24,7 +24,7 @@ import {
 } from '../iam/scope';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
 import { Property } from './domain/property.entity';
-import { PropertyCondition, PropertyKind } from './domain/property.enums';
+import { PropertyKind } from './domain/property.enums';
 import { PropertyImage } from './domain/property-image.entity';
 import { PropertyLabel } from './domain/property-label.entity';
 import {
@@ -221,10 +221,20 @@ export class PropertiesService {
     property.kind = property.familyId
       ? PropertyKind.PROJECT_UNIT
       : PropertyKind.USED;
-    if (property.kind === PropertyKind.PROJECT_UNIT) {
-      // Una unidad que entrega una constructora es obra nueva, por definicion.
-      property.condition = PropertyCondition.NEW;
-    }
+    /*
+      La condicion NO se toca aqui.
+
+      Hubo una version de esto que ponia `condition = NEW` a todo lo que
+      colgara de un proyecto, razonando que una unidad que entrega una
+      constructora es obra nueva. Suena impecable y no describe esta base: los
+      57 "proyectos" son edificios ya ENTREGADOS, sin constructora ni año de
+      entrega, y lo que agrupan son 153 apartamentos de segunda mano del mismo
+      edificio. Aquello convirtio usados en obra nueva y el filtro de la web
+      empezo a devolver lo contrario de lo que se le pedia.
+
+      Nuevo o usado lo dice quien da de alta el inmueble. No se deduce de con
+      quien esta agrupado.
+    */
 
     const saved = await this.dataSource.transaction(async (manager) => {
       const guardado = await manager.save(property);
@@ -309,9 +319,6 @@ export class PropertiesService {
     property.kind = property.familyId
       ? PropertyKind.PROJECT_UNIT
       : PropertyKind.USED;
-    if (property.kind === PropertyKind.PROJECT_UNIT) {
-      property.condition = PropertyCondition.NEW;
-    }
 
     await this.repo.save(property);
     /*

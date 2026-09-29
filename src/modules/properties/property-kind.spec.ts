@@ -44,10 +44,31 @@ describe('un inmueble es usado o es unidad de proyecto', () => {
     expect(Object.values(PropertyKind)).toEqual(['USED', 'PROJECT_UNIT']);
   });
 
-  it('la condicion de una unidad de proyecto es NUEVA', () => {
-    // La migracion corrige las 170 que decian otra cosa; esto fija la regla
-    // para las que se den de alta a partir de ahora.
-    const condicionDeUnaUnidad = PropertyCondition.NEW;
-    expect(condicionDeUnaUnidad).toBe('NEW');
+  it('estar agrupado NO dice si es nuevo o usado', () => {
+    /*
+      Esta prueba existe por un fallo que llego a produccion.
+
+      Habia una version que ponia `condition = NEW` a todo lo que colgara de un
+      proyecto, razonando que una unidad que entrega una constructora es obra
+      nueva. La premisa no describia esta base: los 57 "proyectos" son
+      edificios ya entregados y lo que agrupan son 153 apartamentos de segunda
+      mano. Resultado: 170 fichas mal marcadas y un filtro Nuevo/Usado que
+      devolvia lo contrario de lo que se le pedia.
+
+      Las dos cosas son independientes, y aqui se deja escrito.
+    */
+    const usadoEnUnConjunto = {
+      kind: PropertyKind.PROJECT_UNIT,
+      familyId: 'conjunto-1',
+      condition: PropertyCondition.USED,
+    };
+    expect(coherente(usadoEnUnConjunto)).toBe(true);
+
+    const nuevoSuelto = {
+      kind: PropertyKind.USED,
+      familyId: null,
+      condition: PropertyCondition.NEW,
+    };
+    expect(coherente(nuevoSuelto)).toBe(true);
   });
 });

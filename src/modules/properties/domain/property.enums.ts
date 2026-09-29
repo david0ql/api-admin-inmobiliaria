@@ -18,14 +18,19 @@ export enum PublicationStatus {
 /**
  * Que ES una fila de `property`.
  *
- * Un inmueble suelto es de segunda mano: alguien vivio en el y lo vende. Una
- * unidad de proyecto es obra nueva que entrega una constructora, y cuelga del
- * proyecto al que pertenece.
+ * Un inmueble suelto no pertenece a ningun conjunto. Una unidad SI pertenece a
+ * uno: es uno de los apartamentos de un edificio que la agencia tiene dado de
+ * alta como agrupacion.
  *
- * Compartian tabla sin nada que las distinguiera, y el dato lo demostraba: 153
- * de las 193 unidades de proyecto estaban marcadas como "usado". La base lo
- * impide ahora con una restriccion —una unidad tiene proyecto, un usado no—,
- * asi que esto no es una convencion que haya que recordar.
+ * OJO CON EL NOMBRE. `PROJECT_UNIT` dice "unidad de proyecto" y hoy eso es
+ * engañoso: los 57 registros de `property_family` son `kind = COMPLEX` y
+ * `status = DELIVERED` —edificios entregados, sin constructora ni año de
+ * entrega— y el 79% de lo que agrupan son inmuebles de segunda mano. Esto
+ * distingue "suelto" de "agrupado", y nada mas.
+ *
+ * En particular NO dice si es obra nueva: eso es `condition`, lo decide quien
+ * da de alta el inmueble y no se deduce de con quien esta agrupado. Deducirlo
+ * ya costo 170 fichas mal marcadas.
  */
 export enum PropertyKind {
   USED = 'USED',
