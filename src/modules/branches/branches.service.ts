@@ -36,7 +36,27 @@ export class BranchesService {
     return this.branches.find({ where: { id: actor.branchId } });
   }
 
+  /**
+   * Una sede, y solo si es la suya.
+   *
+   * `list()` y `team()` ya lo comprobaban; esto no, y bastaba con conocer el
+   * identificador de otra oficina para leer su nombre, su direccion y su
+   * telefono. Es el mismo criterio que explica el comentario de arriba: saber
+   * que existe una oficina en Bogota ya es informacion que no le toca a quien
+   * trabaja en Bucaramanga.
+   *
+   * Contesta 404 y no 403: a quien no puede verla tampoco se le confirma que
+   * exista.
+   */
   async findOne(id: string): Promise<Branch> {
+    const actor = RequestContext.actor();
+    if (
+      actor &&
+      !seesAllBranches(actor.role as Role) &&
+      actor.branchId !== id
+    ) {
+      throw new NotFoundException('Sede no encontrada');
+    }
     const branch = await this.branches.findOne({ where: { id } });
     if (!branch) throw new NotFoundException('Sede no encontrada');
     return branch;
