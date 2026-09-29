@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsArray,
   IsBooleanString,
   IsEnum,
@@ -28,6 +29,7 @@ export enum PropertySort {
   VISITS_DESC = 'visits_desc',
 }
 
+/** Para quien de verdad las necesita: el asistente y los portales. */
 export class SearchPropertiesDto extends PageQueryDto {
   @ApiPropertyOptional({
     description: 'Texto libre sobre titulo, direccion y codigo',
@@ -186,4 +188,12 @@ export class SearchPropertiesDto extends PageQueryDto {
   @IsOptional()
   @IsEnum(PropertySort)
   sort?: PropertySort;
+
+  @ApiPropertyOptional({
+    description: 'Incluir también las unidades de proyecto, que por defecto no salen',
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  incluirUnidades?: boolean;
 }

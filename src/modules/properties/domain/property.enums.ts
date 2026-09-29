@@ -15,6 +15,23 @@ export enum PublicationStatus {
   INACTIVE = 'INACTIVE',
 }
 
+/**
+ * Que ES una fila de `property`.
+ *
+ * Un inmueble suelto es de segunda mano: alguien vivio en el y lo vende. Una
+ * unidad de proyecto es obra nueva que entrega una constructora, y cuelga del
+ * proyecto al que pertenece.
+ *
+ * Compartian tabla sin nada que las distinguiera, y el dato lo demostraba: 153
+ * de las 193 unidades de proyecto estaban marcadas como "usado". La base lo
+ * impide ahora con una restriccion —una unidad tiene proyecto, un usado no—,
+ * asi que esto no es una convencion que haya que recordar.
+ */
+export enum PropertyKind {
+  USED = 'USED',
+  PROJECT_UNIT = 'PROJECT_UNIT',
+}
+
 export enum PropertyCondition {
   NEW = 'NEW',
   USED = 'USED',

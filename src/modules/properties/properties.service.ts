@@ -24,6 +24,7 @@ import {
 } from '../iam/scope';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
 import { Property } from './domain/property.entity';
+import { PropertyCondition, PropertyKind } from './domain/property.enums';
 import { PropertyImage } from './domain/property-image.entity';
 import { PropertyLabel } from './domain/property-label.entity';
 import {
@@ -89,6 +90,24 @@ export class PropertiesService {
         'mainImage',
         'mainImage.is_main = true',
       );
+
+    /*
+      El listado de inmuebles enseña INMUEBLES, no unidades de proyecto.
+
+      Eran 645 filas de las que 193 eran apartamentos sobre planos de 57
+      proyectos distintos, mezclados entre los usados y repetidos veinte veces
+      seguidos con el mismo nombre y distinto numero de puerta. Las unidades se
+      gestionan desde su proyecto, que es donde tienen sentido: con sus
+      tipologias, su obra y sus zonas comunes.
+
+      `incluirUnidades` existe para lo que de verdad las necesita —el buscador
+      del asistente, los portales— y no para la pantalla.
+    */
+    if (!dto.incluirUnidades) {
+      qb.andWhere('property.kind = :soloUsados', {
+        soloUsados: PropertyKind.USED,
+      });
+    }
 
     applyPropertyFilters(qb, dto);
     applyOwnershipScope(qb, actor, 'property.assigned_agent_id');
@@ -191,6 +210,22 @@ export class PropertiesService {
         : [],
     });
 
+    /*
+      La clase se deriva del proyecto, no se pide.
+
+      Es un dato que ya esta contenido en otro —tener proyecto ES ser unidad de
+      proyecto— y pedirlo dos veces es invitar a que se contradigan. La base
+      rechaza la fila si no cuadran, asi que derivarlo aqui evita un 500 con
+      cara de error de base de datos donde en realidad hay un formulario.
+    */
+    property.kind = property.familyId
+      ? PropertyKind.PROJECT_UNIT
+      : PropertyKind.USED;
+    if (property.kind === PropertyKind.PROJECT_UNIT) {
+      // Una unidad que entrega una constructora es obra nueva, por definicion.
+      property.condition = PropertyCondition.NEW;
+    }
+
     const saved = await this.dataSource.transaction(async (manager) => {
       const guardado = await manager.save(property);
       await manager.save(
@@ -267,6 +302,15 @@ export class PropertiesService {
       throw new BadRequestException(
         'Usa PATCH /properties/:id/assign para reasignar el inmueble',
       );
+    }
+
+    // Igual que al crear: mover un inmueble a un proyecto lo convierte en
+    // unidad, y sacarlo de el lo devuelve a usado.
+    property.kind = property.familyId
+      ? PropertyKind.PROJECT_UNIT
+      : PropertyKind.USED;
+    if (property.kind === PropertyKind.PROJECT_UNIT) {
+      property.condition = PropertyCondition.NEW;
     }
 
     await this.repo.save(property);

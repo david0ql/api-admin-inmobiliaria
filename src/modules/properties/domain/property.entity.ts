@@ -28,6 +28,7 @@ import {
   PropertyCondition,
   PublicationStatus,
   RentPeriod,
+  PropertyKind,
 } from './property.enums';
 
 /**
@@ -364,6 +365,17 @@ export class Property extends BaseEntity {
     eager: true,
     onDelete: 'SET NULL',
   })
+  /**
+   * Inmueble de segunda mano o unidad de un proyecto.
+   *
+   * La base no deja que esto y `familyId` se contradigan: una unidad de
+   * proyecto tiene proyecto y un usado no lo tiene.
+   */
+  @ApiProperty({ enum: PropertyKind })
+  @Index()
+  @Column({ type: 'enum', enum: PropertyKind, default: PropertyKind.USED })
+  kind: PropertyKind;
+
   @JoinColumn({ name: 'family_id' })
   family: PropertyFamily | null;
 
