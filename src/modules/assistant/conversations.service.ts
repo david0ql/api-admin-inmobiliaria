@@ -352,7 +352,20 @@ export class ConversationsService {
    * dónde hubo un corte.
    */
   async threadFor(clientId: string) {
-    const client = await this.clients.findOne({ where: { id: clientId } });
+    /*
+      La ficha respeta la sede elegida, igual que la lista.
+
+      No es una fuga —a estas rutas solo llega la administracion, que puede ver
+      todas las sedes—, es coherencia: con Cañaveral puesto en el selector, la
+      lista enseñaba las conversaciones de Cañaveral y abrir por identificador
+      una de Cabecera funcionaba igual. El selector decia una cosa en una
+      pantalla y otra en la siguiente, que es como se deja de confiar en el.
+    */
+    const qb = this.clients
+      .createQueryBuilder('client')
+      .where('client.id = :clientId', { clientId });
+    applyBranchScope(qb, 'client.branch_id');
+    const client = await qb.getOne();
     if (!client) throw new NotFoundException('Cliente no encontrado');
 
     const conversations = await this.conversations.find({
@@ -398,10 +411,14 @@ export class ConversationsService {
 
   /** Una conversación con su hilo, para leerla entera. */
   async findOne(id: string) {
-    const conversation = await this.conversations.findOne({
-      where: { id },
-      relations: { client: true },
-    });
+    // La misma coherencia que `threadFor`: lo que la lista no enseña, la ficha
+    // tampoco abre.
+    const qbConv = this.conversations
+      .createQueryBuilder('conversation')
+      .innerJoinAndSelect('conversation.client', 'client')
+      .where('conversation.id = :id', { id });
+    applyBranchScope(qbConv, 'client.branch_id');
+    const conversation = await qbConv.getOne();
     if (!conversation)
       throw new NotFoundException('Conversación no encontrada');
 
