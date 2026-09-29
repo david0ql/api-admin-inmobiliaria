@@ -360,22 +360,28 @@ export class Property extends BaseEntity {
    * Conjunto, edificio o proyecto del que forma parte. Nulo para los inmuebles
    * sueltos, que son la mayoria del inventario de segunda mano.
    */
-  @ManyToOne(() => PropertyFamily, {
-    nullable: true,
-    eager: true,
-    onDelete: 'SET NULL',
-  })
   /**
    * Inmueble de segunda mano o unidad de un proyecto.
    *
    * La base no deja que esto y `familyId` se contradigan: una unidad de
    * proyecto tiene proyecto y un usado no lo tiene.
+   *
+   * Va ANTES del bloque de la relacion y no en medio: un decorador se aplica a
+   * lo que tiene justo debajo, asi que colarse entre `@ManyToOne` y su
+   * propiedad convierte esta columna en una relacion —TypeORM se pone a buscar
+   * `kind_id`— y deja a `family` sin la suya. Cuesta un rato verlo porque el
+   * fichero sigue compilando.
    */
   @ApiProperty({ enum: PropertyKind })
   @Index()
   @Column({ type: 'enum', enum: PropertyKind, default: PropertyKind.USED })
   kind: PropertyKind;
 
+  @ManyToOne(() => PropertyFamily, {
+    nullable: true,
+    eager: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'family_id' })
   family: PropertyFamily | null;
 
