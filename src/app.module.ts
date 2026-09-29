@@ -26,7 +26,6 @@ import { PortalModule } from './modules/portal/portal.module';
 import { AssistantModule } from './modules/assistant/assistant.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { ImageAiModule } from './modules/image-ai/image-ai.module';
-import { DatasetsModule } from './modules/datasets/datasets.module';
 
 @Module({
   imports: [
@@ -49,7 +48,6 @@ import { DatasetsModule } from './modules/datasets/datasets.module';
     AssistantModule,
     AttendanceModule,
     ImageAiModule,
-    DatasetsModule,
   ],
   controllers: [HealthController],
   providers: [
