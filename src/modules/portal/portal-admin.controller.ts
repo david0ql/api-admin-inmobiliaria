@@ -16,6 +16,7 @@ import { Client } from '../crm/domain/client.entity';
 import { CurrentUser, Roles } from '../iam/decorators';
 import { Role } from '../iam/domain/role.enum';
 import type { AuthenticatedActor } from '../../shared/request-context/request-context';
+import { ClientsService } from '../crm/clients.service';
 import { PortalAuthService } from './portal-auth.service';
 import { PortalAccessDto } from './dto/portal.dto';
 
@@ -34,6 +35,8 @@ import { PortalAccessDto } from './dto/portal.dto';
 export class PortalAdminController {
   constructor(
     @InjectRepository(Client) private readonly clients: Repository<Client>,
+    // Para leer un cliente: trae la sede y la cartera puestas.
+    private readonly clientsService: ClientsService,
     private readonly auth: PortalAuthService,
     private readonly activities: ActivitiesService,
   ) {}
@@ -41,8 +44,11 @@ export class PortalAdminController {
   @Get(':id/portal')
   @Roles(Role.ADMIN, Role.MANAGER, Role.AGENT)
   @ApiOperation({ summary: 'Estado del acceso al portal de este cliente' })
-  async status(@Param('id', ParseUUIDPipe) id: string) {
-    const client = await this.find(id);
+  async status(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() actor: AuthenticatedActor,
+  ) {
+    const client = await this.find(id, actor);
     // Nunca el hash, ni siquiera a un administrador: no hay nada que hacer con
     // el desde el panel, y lo que no se envia no se filtra.
     return {
@@ -69,7 +75,7 @@ export class PortalAdminController {
     @Body() dto: PortalAccessDto,
     @CurrentUser() actor: AuthenticatedActor,
   ) {
-    const client = await this.find(id);
+    const client = await this.find(id, actor);
 
     if (!client.email) {
       throw new NotFoundException(
@@ -106,18 +112,27 @@ export class PortalAdminController {
       });
     }
 
-    return this.status(id);
+    return this.status(id, actor);
   }
 
-  private async find(id: string): Promise<Client> {
-    const client = await this.clients.findOne({
-      where: { id },
-      loadEagerRelations: false,
-    });
-    if (!client) throw new NotFoundException(`Cliente ${id} no encontrado`);
-    return client;
+  /**
+   * El cliente, acotado a quien pregunta.
+   *
+   * Esto era un `findOne` por id contra el repositorio, sin sede y sin cartera,
+   * y abria un agujero de verdad: cualquiera con acceso al panel —asesor
+   * incluido— podia leer el estado del portal de CUALQUIER cliente del sistema
+   * y, peor, fijarle una contraseña provisional y entrar al portal como el.
+   * Bastaba con conocer su identificador.
+   *
+   * `ClientsService.findOne` ya resuelve las dos cosas: filtra por sede y por
+   * cartera, y contesta 404 —no 403— a lo que no alcanza, que es lo correcto:
+   * a quien no puede verlo tampoco se le confirma que exista.
+   */
+  private async find(id: string, actor: AuthenticatedActor): Promise<Client> {
+    return this.clientsService.findOne(id, actor);
   }
 
+  /** Solo se llama DESPUES de que `find` haya comprobado el alcance. */
   private async hasPassword(id: string): Promise<boolean> {
     const row = await this.clients
       .createQueryBuilder('client')

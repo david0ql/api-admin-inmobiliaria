@@ -11,6 +11,8 @@ import { PropertyInterest, InterestRole } from '../crm/domain/property-interest.
 import { Property } from '../properties/domain/property.entity';
 import { PublicationStatus } from '../properties/domain/property.enums';
 import type { PortalPropertyUpdateDto } from './dto/portal.dto';
+import { applyBranchScope, assertSameBranch } from '../iam/scope';
+import type { AuthenticatedActor } from '../../shared/request-context/request-context';
 import {
   PortalChangeSettings,
   PropertyChangeAction,
@@ -43,8 +45,22 @@ export class PropertyChangesService implements OnModuleInit, OnModuleDestroy {
   async own(clientId: string) {
     return this.changes.find({ where: { clientId }, order: { createdAt: 'DESC' } });
   }
+  /**
+   * La bandeja de solicitudes, acotada a la sede.
+   *
+   * Era un `find` sin condiciones: un coordinador de una oficina veia las 250
+   * ultimas solicitudes de TODAS, con el antes y el despues del inmueble
+   * dentro, y podia aprobarlas. La solicitud no guarda sede —no la necesita—,
+   * asi que se acota por la del inmueble, que si la tiene.
+   */
   async all() {
-    return this.changes.find({ order: { createdAt: 'DESC' }, take: 250 });
+    const qb = this.changes
+      .createQueryBuilder('solicitud')
+      .innerJoin(Property, 'property', 'property.id = solicitud.property_id')
+      .orderBy('solicitud.created_at', 'DESC')
+      .take(250);
+    applyBranchScope(qb, 'property.branch_id');
+    return qb.getMany();
   }
 
   async proposeUpdate(clientId: string, propertyId: string, dto: PortalPropertyUpdateDto) {
@@ -90,9 +106,30 @@ export class PropertyChangesService implements OnModuleInit, OnModuleDestroy {
     }));
   }
 
-  async review(id: string, approved: boolean, actorId: string, resolution?: string) {
+  async review(
+    id: string,
+    approved: boolean,
+    actorId: string,
+    resolution?: string,
+    actor?: AuthenticatedActor,
+  ) {
     const change = await this.changes.findOne({ where: { id } });
     if (!change) throw new NotFoundException('Solicitud no encontrada');
+
+    /*
+      Y el inmueble tiene que ser de su sede.
+      Conocer el identificador de una solicitud bastaba para aprobar o rechazar
+      el cambio de precio de un inmueble de otra oficina — y con el plazo de
+      propagacion en cero, se aplicaba en el acto.
+    */
+    if (actor) {
+      const inmueble = await this.properties.findOne({
+        where: { id: change.propertyId },
+        loadEagerRelations: false,
+        select: { id: true, branchId: true },
+      });
+      assertSameBranch(actor, inmueble?.branchId ?? null);
+    }
     if (change.status !== PropertyChangeStatus.PENDING) {
       throw new ConflictException('La solicitud ya fue revisada');
     }

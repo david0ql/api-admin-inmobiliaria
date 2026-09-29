@@ -17,7 +17,7 @@ export class PropertyChangesAdminController {
     @Body() dto: ReviewPropertyChangeDto,
     @CurrentUser() actor: AuthenticatedActor,
   ) {
-    return this.changes.review(id, dto.approved, actor.id, dto.resolution);
+    return this.changes.review(id, dto.approved, actor.id, dto.resolution, actor);
   }
   @Get('settings/propagation') settings() { return this.changes.getSettings(); }
   @Patch('settings/propagation') updateSettings(@Body() dto: PortalChangeSettingsDto) {

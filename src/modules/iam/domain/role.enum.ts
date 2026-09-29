@@ -33,15 +33,22 @@ export const ROLES_WITH_FULL_VISIBILITY: readonly Role[] = [
 /**
  * Quien ve TODAS las sedes.
  *
- * Son dos y solo dos. El coordinador tambien ve "todo", pero todo lo de SU
- * sede: son dos preguntas distintas —cuanto abarca dentro de una sede y
- * cuantas sedes abarca— y mezclarlas es como se cuelan las fugas de datos
- * entre oficinas.
+ * Uno y solo uno: la administracion. El coordinador tambien ve "todo", pero
+ * todo lo de SU sede, y el director dirige operaciones dentro de la suya: son
+ * dos preguntas distintas —cuanto abarca dentro de una sede y cuantas sedes
+ * abarca— y mezclarlas es como se cuelan las fugas entre oficinas.
+ *
+ * DIRECTOR estaba aqui y salio por decision del negocio: elegir sede y mirar
+ * los datos de otra oficina es de la administracion. Salir de esta lista no le
+ * cierra ninguna RUTA —el guard ya le da paso donde se pide MANAGER, por una
+ * rama aparte— sino que le acota los DATOS, que es justo lo que se buscaba.
+ *
+ * Ojo si se crea uno: al no ver todas las sedes, necesita tener la suya
+ * asignada. Sin ella, el interceptor contesta 403 en todas las peticiones.
+ * `agents.service` ya la exige para los roles que no las ven todas, asi que el
+ * formulario de alta lo pide solo.
  */
-export const ROLES_ACROSS_BRANCHES: readonly Role[] = [
-  Role.ADMIN,
-  Role.DIRECTOR,
-];
+export const ROLES_ACROSS_BRANCHES: readonly Role[] = [Role.ADMIN];
 
 export function seesAllBranches(role: Role): boolean {
   return ROLES_ACROSS_BRANCHES.includes(role);

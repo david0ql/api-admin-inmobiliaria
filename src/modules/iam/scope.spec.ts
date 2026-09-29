@@ -59,10 +59,19 @@ describe('assertCanEditAgent', () => {
     expect(puede(admin, ficha(Role.ADMIN, null))).toBe(true);
   });
 
-  it('la direccion llega a todas las sedes pero no a la administracion', () => {
-    const director = actor(Role.DIRECTOR, null);
+  it('la direccion manda en SU sede, no en todas', () => {
+    /*
+      Cambio de regla pedido por el negocio: elegir sede y mirar los datos de
+      otra oficina es de la administracion, y solo de ella. El director dirige
+      operaciones dentro de la suya.
+
+      Esta prueba decia lo contrario y fallo al hacer el cambio, que es
+      exactamente para lo que estaba escrita.
+    */
+    const director = actor(Role.DIRECTOR, SEDE_A);
     expect(puede(director, ficha(Role.AGENT, SEDE_A))).toBe(true);
-    expect(puede(director, ficha(Role.COORDINATOR, SEDE_B))).toBe(true);
+    expect(puede(director, ficha(Role.AGENT, SEDE_B))).toBe(false);
+    expect(puede(director, ficha(Role.COORDINATOR, SEDE_B))).toBe(false);
     // Si pudiera, le cambiaria la contrasena al administrador y entraria como
     // el: ascender sin que nadie cambie ningun rol.
     expect(puede(director, ficha(Role.ADMIN, null))).toBe(false);
